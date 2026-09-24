@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+# Materiales descargados y registro local: nunca al repositorio
+UJI/
+*.db
