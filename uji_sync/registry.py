@@ -54,6 +54,16 @@ CREATE TABLE IF NOT EXISTS summaries (
     input_tokens  INTEGER NOT NULL,
     output_tokens INTEGER NOT NULL
 );
+-- Apuntes propios que la bandeja ha organizado.
+CREATE TABLE IF NOT EXISTS notes (
+    local_path    TEXT PRIMARY KEY,  -- relativa a la carpeta UJI
+    original_name TEXT NOT NULL,
+    course_name   TEXT NOT NULL,
+    section       TEXT NOT NULL,
+    titulo        TEXT NOT NULL,
+    en_una_frase  TEXT NOT NULL,
+    created       TEXT NOT NULL
+);
 """
 
 
@@ -142,6 +152,18 @@ class Registry:
              input_tokens, output_tokens),
         )
         self.conn.commit()
+
+    def save_note(self, local_path: str, original_name: str, course_name: str,
+                  section: str, titulo: str, en_una_frase: str) -> None:
+        self.conn.execute(
+            "INSERT OR REPLACE INTO notes VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (local_path, original_name, course_name, section, titulo, en_una_frase, now()),
+        )
+        self.conn.commit()
+
+    def notes(self) -> dict[str, dict]:
+        rows = self.conn.execute("SELECT * FROM notes").fetchall()
+        return {r["local_path"]: dict(r) for r in rows}
 
     def start_run(self, dry_run: bool) -> int:
         cur = self.conn.execute(

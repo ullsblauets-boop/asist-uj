@@ -7,13 +7,19 @@ mensajes por una cola y nunca se bloquea.
 
 from __future__ import annotations
 
+import os
 import queue
+import subprocess
+import sys
 import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
-from .ai import DEFAULT_MODEL, MODELS, AIProcessor, needs_api, pending
+from .ai import DEFAULT_MODEL, MODELS, AIError, AIFatalError, AIProcessor, needs_api, pending
+from .assistant import Assistant
+from .inbox import InboxOrganizer, inbox_dir, inbox_files
+from .library import list_courses
 from .apikey import get_api_key, has_credentials, set_api_key, delete_api_key
 from .config import BASE_URL, Settings, browser_profile_dir, find_google_drive, registry_path
 from .moodle import Course, LoginCancelled, MoodleBrowser
@@ -67,7 +73,7 @@ class App:
         self.busy = False
 
         root.title("UJI Sync")
-        root.geometry("720x680")
+        root.geometry("720x720")
         root.minsize(520, 480)
         self._build()
         root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -146,6 +152,14 @@ class App:
         self.pending_btn = ttk.Button(ai, text="Resumir pendientes", command=self.start_pending)
         self.pending_btn.pack(side="left", padx=4)
 
+        extra = ttk.LabelFrame(self.root, text="Asistente y apuntes")
+        extra.pack(fill="x", **pad)
+        ttk.Button(extra, text="💬 Asistente", command=self.open_assistant).pack(side="left")
+        ttk.Button(extra, text="📂 Abrir bandeja de apuntes", command=self.open_inbox).pack(
+            side="left", padx=4)
+        self.inbox_btn = ttk.Button(extra, text="🗂 Organizar mis apuntes", command=self.start_inbox)
+        self.inbox_btn.pack(side="left")
+
         self.log_box = scrolledtext.ScrolledText(self.root, height=12, state="disabled")
         self.log_box.pack(fill="both", expand=True, **pad)
 
@@ -183,6 +197,7 @@ class App:
         self.busy = busy
         self.login_btn.configure(state="disabled" if busy else "normal")
         self.pending_btn.configure(state="disabled" if busy else "normal")
+        self.inbox_btn.configure(state="disabled" if busy else "normal")
         self.sync_btn.configure(
             state="disabled" if busy or not self.course_vars else "normal"
         )
@@ -196,10 +211,10 @@ class App:
         if not self.settings.ai_consent:
             ok = messagebox.askyesno(
                 "UJI Sync",
-                "Para resumir tus materiales, UJI Sync los envía a la API de Claude "
-                "(Anthropic).\n\n"
-                "· Se cobra por uso en tu cuenta de Anthropic (solo se resume cada "
-                "archivo una vez).\n"
+                "Para usar la IA (resúmenes, asistente y bandeja de apuntes), UJI Sync "
+                "envía tus materiales a la API de Claude (Anthropic).\n\n"
+                "· Se cobra por uso en tu cuenta de Anthropic (cada archivo se resume "
+                "una sola vez).\n"
                 "· Los resúmenes son para tu estudio personal: no los redistribuyas.\n\n"
                 "¿Quieres activarlo?",
             )
@@ -266,6 +281,52 @@ class App:
         self.status_var.set("Resumiendo con IA…")
         self.worker.submit(self._task_ai, dest, [r.key for r in recs], "", self._model_id())
 
+    # ------------------------------------------------- asistente y bandeja
+    def _dest(self) -> Path:
+        return Path(self.dest_var.get()).expanduser()
+
+    def open_assistant(self) -> None:
+        if not list_courses(self._dest()):
+            messagebox.showinfo("UJI Sync", "Primero sincroniza el Aula Virtual para tener materiales.")
+            return
+        if self._ensure_ai_ready():
+            AssistantWindow(self.root, self._dest(), self._model_id())
+
+    def open_inbox(self) -> None:
+        path = inbox_dir(self._dest())
+        try:
+            if sys.platform == "win32":
+                os.startfile(path)  # abre la carpeta en el Explorador
+            else:
+                subprocess.Popen(["xdg-open" if sys.platform != "darwin" else "open", str(path)])
+        except OSError:
+            messagebox.showinfo("UJI Sync", f"Deja tus apuntes en:\n{path}")
+
+    def start_inbox(self) -> None:
+        dest = self._dest()
+        files = inbox_files(dest)
+        if not files:
+            messagebox.showinfo(
+                "UJI Sync",
+                f"La bandeja está vacía. Deja tus apuntes en:\n{inbox_dir(dest)}\n\n"
+                "y vuelve a pulsar «Organizar mis apuntes».",
+            )
+            return
+        if not list_courses(dest):
+            messagebox.showinfo("UJI Sync", "Primero sincroniza el Aula Virtual para tener asignaturas.")
+            return
+        if not self._ensure_ai_ready():
+            return
+        if not messagebox.askyesno(
+            "UJI Sync",
+            f"Hay {len(files)} archivos en la bandeja. Se enviarán a Claude para decidir "
+            "su asignatura y tema (tiene un coste pequeño).\n\n¿Organizarlos?",
+        ):
+            return
+        self._set_busy(True)
+        self.status_var.set("Organizando tus apuntes…")
+        self.worker.submit(self._task_inbox, dest, self._model_id())
+
     # ------------------------------------------------------------ acciones
     def start_login(self) -> None:
         self._set_busy(True)
@@ -330,6 +391,17 @@ class App:
         finally:
             syncer.close()
         w.events.put(("synced", (results, dest, dry_run)))
+
+    def _task_inbox(self, dest: Path, model: str) -> None:
+        w = self.worker
+        reg = Registry(registry_path(dest))
+        try:
+            org = InboxOrganizer(dest, reg, model=model,
+                                 log=lambda t: w.events.put(("log", t)), should_stop=w.stop.is_set)
+            text = org.organize().text()
+        finally:
+            reg.close()
+        w.events.put(("summary", text))
 
     def _task_ai(self, dest: Path, keys: list[str], prefix: str, model: str) -> None:
         w = self.worker
@@ -404,6 +476,124 @@ class App:
         self.status_var.set(text.splitlines()[0])
         self.log("\n" + text + "\n")
         messagebox.showinfo("UJI Sync", text)
+
+
+class AssistantWindow:
+    """Ventana de chat con el asistente de estudio."""
+
+    ALL = "Todas las asignaturas"
+
+    def __init__(self, parent: tk.Tk, root_dir: Path, model: str):
+        self.root_dir = root_dir
+        self.model = model
+        self.assistant: Assistant | None = None
+        self.busy = False
+        self.updates: queue.Queue = queue.Queue()  # el hilo de la IA nunca toca tkinter
+        self.win = tk.Toplevel(parent)
+        self.win.title("UJI Sync · Asistente")
+        self.win.geometry("720x620")
+
+        top = ttk.Frame(self.win)
+        top.pack(fill="x", padx=10, pady=6)
+        ttk.Label(top, text="Sobre:").pack(side="left")
+        self.scope_var = tk.StringVar(value=self.ALL)
+        scope = ttk.Combobox(top, textvariable=self.scope_var, state="readonly", width=40,
+                             values=[self.ALL] + list_courses(root_dir))
+        scope.pack(side="left", padx=6)
+        scope.bind("<<ComboboxSelected>>", lambda e: self.new_conversation())
+        ttk.Button(top, text="Nueva conversación", command=self.new_conversation).pack(side="left")
+        self.cost_var = tk.StringVar()
+        ttk.Label(top, textvariable=self.cost_var, foreground="#555").pack(side="right")
+
+        self.chat = scrolledtext.ScrolledText(self.win, wrap="word", state="disabled")
+        self.chat.pack(fill="both", expand=True, padx=10)
+        self.chat.tag_configure("who", font=("TkDefaultFont", 10, "bold"))
+        self.chat.tag_configure("info", foreground="#777")
+
+        bottom = ttk.Frame(self.win)
+        bottom.pack(fill="x", padx=10, pady=8)
+        self.entry = tk.Text(bottom, height=3, wrap="word")
+        self.entry.pack(side="left", fill="x", expand=True)
+        self.entry.bind("<Return>", self._on_enter)
+        self.send_btn = ttk.Button(bottom, text="Enviar", command=self.send)
+        self.send_btn.pack(side="left", padx=(6, 0))
+        self.new_conversation()
+        self.entry.focus_set()
+        self.win.after(100, self._poll)
+
+    def _poll(self) -> None:
+        if not self.win.winfo_exists():
+            return
+        try:
+            while True:
+                fn, args = self.updates.get_nowait()
+                fn(*args)
+        except queue.Empty:
+            pass
+        self.win.after(100, self._poll)
+
+    def _write(self, text: str, tag: str | None = None) -> None:
+        self.chat.configure(state="normal")
+        self.chat.insert("end", text, tag)
+        self.chat.see("end")
+        self.chat.configure(state="disabled")
+
+    def _on_enter(self, event):
+        if not event.state & 0x1:  # Mayús+Intro = salto de línea
+            self.send()
+            return "break"
+
+    def new_conversation(self) -> None:
+        if self.busy:
+            return
+        scope = self.scope_var.get()
+        try:
+            self.assistant = Assistant(self.root_dir, None if scope == self.ALL else scope,
+                                       model=self.model)
+        except AIError as e:
+            self.assistant = None
+            messagebox.showerror("UJI Sync", str(e), parent=self.win)
+            return
+        self.chat.configure(state="normal")
+        self.chat.delete("1.0", "end")
+        self.chat.configure(state="disabled")
+        self._write(f"Pregúntame lo que quieras sobre {scope.lower() if scope == self.ALL else scope}: "
+                    "dudas, explicaciones, qué entra en un tema, preguntas de repaso…\n\n", "info")
+        self.cost_var.set("")
+
+    def send(self) -> None:
+        question = self.entry.get("1.0", "end").strip()
+        if not question or self.busy or self.assistant is None:
+            return
+        self.entry.delete("1.0", "end")
+        self._write("Tú\n", "who")
+        self._write(question + "\n\n")
+        self._write("Pensando…\n", "info")
+        self.busy = True
+        self.send_btn.configure(state="disabled")
+        threading.Thread(target=self._ask, args=(self.assistant, question), daemon=True).start()
+
+    def _ask(self, assistant: Assistant, question: str) -> None:
+        on_read = lambda ruta: self.updates.put((self._write, (f"📖 Leyendo {ruta}…\n", "info")))
+        try:
+            answer, error = assistant.ask(question, on_read=on_read), None
+        except (AIError, AIFatalError) as e:
+            answer, error = None, str(e)
+        except Exception as e:  # nunca dejar la ventana bloqueada
+            answer, error = None, f"{type(e).__name__}: {e}"
+        self.updates.put((self._show_answer, (assistant, answer, error)))
+
+    def _show_answer(self, assistant: Assistant, answer: str | None, error: str | None) -> None:
+        self.busy = False
+        self.send_btn.configure(state="normal")
+        if assistant is not self.assistant:
+            return  # la conversación se reinició mientras tanto
+        if error:
+            self._write(f"⚠ {error}\n\n", "info")
+        else:
+            self._write("Asistente\n", "who")
+            self._write(answer + "\n\n")
+        self.cost_var.set(f"Coste de la conversación: {assistant.cost:.2f} US$".replace(".", ","))
 
 
 def run() -> None:

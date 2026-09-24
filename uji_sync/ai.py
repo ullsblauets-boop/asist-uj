@@ -14,6 +14,7 @@ registro, solo se vuelve a escribir el .md (sin coste).
 from __future__ import annotations
 
 import base64
+import io
 import json
 import posixpath
 from dataclasses import dataclass, field
@@ -40,6 +41,8 @@ PRICES = {
 SUMMARIES_DIR = "_resumenes_IA"
 NEWS_FILE = "Novedades.md"
 SUPPORTED = {".pdf", ".docx", ".pptx", ".txt", ".md"}
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}  # p. ej. fotos de apuntes a mano
+MAX_IMAGE_SIDE = 2000  # px; las fotos del móvil se reducen antes de enviarlas
 MAX_PDF_BYTES = 22 * 1024 * 1024   # el límite de la API es 32 MB por petición (en base64)
 MAX_TEXT_CHARS = 1_500_000         # ~400K tokens; más largo se omite en vez de recortarlo
 
@@ -156,7 +159,80 @@ def document_block(path: Path, title: str) -> dict:
     }
 
 
+def image_block(path: Path) -> dict:
+    from PIL import Image, ImageOps
+
+    try:
+        with Image.open(path) as im:
+            im = ImageOps.exif_transpose(im)  # respeta la orientación de las fotos del móvil
+            im.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE))
+            if im.mode not in ("RGB", "L"):
+                im = im.convert("RGB")
+            buf = io.BytesIO()
+            im.save(buf, "JPEG", quality=85)
+    except OSError as e:
+        raise Unsupported("imagen no válida") from e
+    return {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                        "data": base64.standard_b64encode(buf.getvalue()).decode("ascii")}}
+
+
+def material_block(path: Path, title: str) -> dict:
+    """Bloque para Claude con el contenido de un documento o de una imagen."""
+    if path.suffix.lower() in IMAGE_EXTS:
+        return image_block(path)
+    return document_block(path, title)
+
+
 # ---------------------------------------------------------------- Claude
+def create_message(client, model: str, **request):
+    """Llama a la API y traduce sus errores a AIError (este documento) o AIFatalError (parar)."""
+    request["model"] = model
+    if model == "claude-opus-5":
+        # Si el filtro de seguridad rechaza la petición, se reintenta en el
+        # servidor con el modelo de reserva recomendado.
+        request.update(betas=["server-side-fallback-2026-07-01"], fallbacks="default")
+    try:
+        return client.beta.messages.create(**request)
+    except anthropic.BadRequestError as e:
+        raise AIError(f"la API rechazó la petición: {e.message}") from e
+    except anthropic.AuthenticationError as e:
+        raise AIFatalError("La clave de API de Claude no es válida.") from e
+    except anthropic.PermissionDeniedError as e:
+        raise AIFatalError("La clave de API no tiene permiso para usar este modelo.") from e
+    except anthropic.RateLimitError as e:
+        raise AIFatalError("Se ha alcanzado el límite de uso de la API. Prueba más tarde.") from e
+    except anthropic.APIStatusError as e:
+        if e.status_code >= 500:
+            raise AIError(f"error temporal del servicio ({e.status_code})") from e
+        raise AIFatalError(f"Error de la API ({e.status_code}): {e.message}") from e
+    except anthropic.APIConnectionError as e:
+        raise AIFatalError("No hay conexión con la API de Claude.") from e
+    except anthropic.AnthropicError as e:
+        raise AIFatalError(f"No se pudo usar la IA: {e}") from e
+
+
+def structured_call(client, model: str, system: str, content: list, schema: dict,
+                    effort: str = "medium", max_tokens: int = 16000):
+    """Petición con salida JSON garantizada por el esquema. Devuelve (datos, respuesta)."""
+    resp = create_message(
+        client, model,
+        max_tokens=max_tokens,
+        system=system,
+        thinking={"type": "adaptive"},
+        output_config={"effort": effort, "format": {"type": "json_schema", "schema": schema}},
+        messages=[{"role": "user", "content": content}],
+    )
+    if resp.stop_reason == "refusal":
+        raise AIError("la IA no ha podido procesar este documento")
+    if resp.stop_reason == "max_tokens":
+        raise AIError("la respuesta de la IA ha quedado incompleta")
+    text = next((b.text for b in resp.content if b.type == "text"), "")
+    try:
+        return json.loads(text), resp
+    except ValueError as e:
+        raise AIError("respuesta de la IA no válida") from e
+
+
 @dataclass
 class Summary:
     data: dict
@@ -179,60 +255,30 @@ class Summarizer:
 
     def summarize(self, path: Path, course: str, section: str) -> Summary:
         block = document_block(path, path.name)
-        request = dict(
-            model=self.model,
-            max_tokens=16000,
-            system=SYSTEM_PROMPT,
-            thinking={"type": "adaptive"},
-            output_config={
-                "effort": self.effort,
-                "format": {"type": "json_schema", "schema": SUMMARY_SCHEMA},
-            },
-            messages=[{"role": "user", "content": [
-                block,
-                {"type": "text", "text": f"Asignatura: {course}\nSección: {section}\n"
-                                         f"Archivo: {path.name}\n\nResume este material."},
-            ]}],
+        data, resp = structured_call(
+            self.client, self.model, SYSTEM_PROMPT,
+            [block, {"type": "text", "text": f"Asignatura: {course}\nSección: {section}\n"
+                                             f"Archivo: {path.name}\n\nResume este material."}],
+            SUMMARY_SCHEMA, effort=self.effort,
         )
-        if self.model == "claude-opus-5":
-            # Si el filtro de seguridad rechaza un documento, se reintenta en el
-            # servidor con el modelo de reserva recomendado.
-            request.update(betas=["server-side-fallback-2026-07-01"], fallbacks="default")
-        try:
-            resp = self.client.beta.messages.create(**request)
-        except anthropic.BadRequestError as e:
-            raise AIError(f"la API rechazó el documento: {e.message}") from e
-        except anthropic.AuthenticationError as e:
-            raise AIFatalError("La clave de API de Claude no es válida.") from e
-        except anthropic.PermissionDeniedError as e:
-            raise AIFatalError("La clave de API no tiene permiso para usar este modelo.") from e
-        except anthropic.RateLimitError as e:
-            raise AIFatalError("Se ha alcanzado el límite de uso de la API. Prueba más tarde.") from e
-        except anthropic.APIStatusError as e:
-            if e.status_code >= 500:
-                raise AIError(f"error temporal del servicio ({e.status_code})") from e
-            raise AIFatalError(f"Error de la API ({e.status_code}): {e.message}") from e
-        except anthropic.APIConnectionError as e:
-            raise AIFatalError("No hay conexión con la API de Claude.") from e
-        except anthropic.AnthropicError as e:
-            raise AIFatalError(f"No se pudo usar la IA: {e}") from e
-
-        if resp.stop_reason == "refusal":
-            raise AIError("la IA no ha podido procesar este documento")
-        if resp.stop_reason == "max_tokens":
-            raise AIError("el resumen ha quedado incompleto")
-        text = next((b.text for b in resp.content if b.type == "text"), "")
-        try:
-            data = json.loads(text)
-        except ValueError as e:
-            raise AIError("respuesta de la IA no válida") from e
         return Summary(data, resp.model or self.model,
                        resp.usage.input_tokens, resp.usage.output_tokens)
 
 
-def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+def estimate_cost(model: str, input_tokens: int, output_tokens: int,
+                  cache_write: int = 0, cache_read: int = 0) -> float:
     p_in, p_out = PRICES.get(model, PRICES[DEFAULT_MODEL])
-    return input_tokens * p_in / 1e6 + output_tokens * p_out / 1e6
+    # Escribir en la caché cuesta 1,25x la entrada; leer de ella, 0,1x.
+    return (input_tokens * p_in + cache_write * p_in * 1.25 + cache_read * p_in * 0.1
+            + output_tokens * p_out) / 1e6
+
+
+def usage_cost(model: str, usage) -> float:
+    return estimate_cost(
+        model, usage.input_tokens, usage.output_tokens,
+        getattr(usage, "cache_creation_input_tokens", 0) or 0,
+        getattr(usage, "cache_read_input_tokens", 0) or 0,
+    )
 
 
 # ---------------------------------------------------------------- salida .md

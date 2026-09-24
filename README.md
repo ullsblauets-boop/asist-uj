@@ -12,15 +12,20 @@ de tus asignaturas del **Aula Virtual de la UJI** (Moodle).
 - Puede guardar todo directamente en **Google Drive**.
 - Opcional: **resume con IA (Claude)** cada material nuevo: idea principal,
   resumen, puntos clave, conceptos y preguntas de repaso.
+- **Asistente de estudio**: un chat al que preguntar sobre tus materiales.
+- **Bandeja de apuntes**: dejas tus propios apuntes (incluso fotos de apuntes a
+  mano) y la IA los coloca en su asignatura y tema.
 
 ```
 UJI/
+├── _Bandeja de apuntes/        ← deja aquí tus apuntes para que se organicen
 ├── Matemáticas/
 │   ├── 00 - General/
 │   │   └── Web de la asignatura.url
 │   ├── 01 - Tema 1_ Introducción/
 │   │   ├── Tema 1.pdf
 │   │   └── Prácticas/          ← Carpeta de Moodle, con sus subcarpetas
+│   ├── Mis apuntes/            ← tus apuntes, organizados por tema
 │   ├── _resumenes_IA/          ← resúmenes con IA, con la misma estructura de temas
 │   │   ├── Novedades.md
 │   │   └── 01 - Tema 1_ Introducción/
@@ -143,6 +148,47 @@ vez que actives la función te lo recordará. Los resúmenes son para tu estudio
 personal: no redistribuyas los materiales ni los resúmenes. Son generados por IA
 y pueden contener errores; consulta siempre el original.
 
+## Asistente de estudio
+
+Pulsa **"💬 Asistente"**, elige una asignatura (o todas) y pregunta lo que quieras:
+
+- «¿Qué entra en el tema 3?»
+- «Explícame la regla de la cadena con un ejemplo de mis apuntes»
+- «Hazme 5 preguntas tipo test del tema 2»
+- «¿En qué se diferencian el MRU y el MRUA?»
+
+Cómo funciona:
+
+- El asistente conoce **todos tus materiales**: los del Aula Virtual y tus apuntes.
+  Tiene un índice con el resumen de cada uno.
+- Cuando necesita detalles (una fórmula, un enunciado, un ejemplo), **abre el
+  documento concreto** y lo lee. Verás «📖 Leyendo …» en la conversación.
+- Te dice de qué archivo sale cada cosa. Si algo no está en tus materiales, te
+  avisa de que lo explica con conocimiento general.
+- La ventana muestra el **coste de la conversación**. Preguntar sobre una sola
+  asignatura es más barato que sobre todas. «Nueva conversación» empieza de cero.
+
+Funciona mejor con los resúmenes activados, porque el índice es más rico. Sin
+ellos, el asistente solo ve los nombres de los archivos y tiene que abrirlos.
+
+## Bandeja de apuntes
+
+1. Pulsa **"📂 Abrir bandeja de apuntes"**. Se abre la carpeta
+   `UJI\_Bandeja de apuntes`, que también está en Google Drive si lo usas, así
+   que puedes subir fotos desde el móvil.
+2. Deja ahí tus apuntes: PDF, Word, PowerPoint, texto o **fotos de apuntes a
+   mano** (JPG, PNG).
+3. Pulsa **"🗂 Organizar mis apuntes"**. Para cada archivo, Claude:
+   - decide la **asignatura y el tema**, eligiendo solo entre las carpetas que
+     ya existen, así que no se inventa ninguna;
+   - le pone un **nombre descriptivo** (por ejemplo, `IMG_2031.jpg` pasa a ser
+     `Límites laterales.jpg`);
+   - lo mueve a `Asignatura\Mis apuntes\Tema\`.
+
+Si no tiene claro dónde va un archivo, lo deja en la bandeja y te lo dice. Nunca
+sobrescribe otro apunte. Clasificar un apunte cuesta muy poco (céntimos). Las
+fotos HEIC del iPhone no se admiten: expórtalas como JPG.
+
 ## Diagnóstico
 
 Si algo no funciona, ejecuta el diagnóstico. No descarga nada: dice si detecta
@@ -198,6 +244,9 @@ uji_sync/
   sync.py      descarga, organización, duplicados y resumen
   registry.py  registro SQLite (archivos, ejecuciones y resúmenes)
   ai.py        resúmenes con Claude (extracción, petición, .md, novedades)
+  assistant.py asistente de estudio (índice de materiales + herramienta leer_material)
+  inbox.py     bandeja de apuntes (clasificar, renombrar y mover)
+  library.py   asignaturas, temas y materiales que hay en la carpeta UJI
   apikey.py    clave de API en el almacén seguro del sistema
   fsutils.py   nombres válidos en Windows, URLs pluginfile.php
   ui.py        interfaz tkinter
@@ -217,4 +266,3 @@ Cada función futura encaja en una pieza existente, sin reescribir nada:
 | Anuncios nuevos | Leer el foro "Avisos" (`modtype_forum`, ya detectado en `get_course_sections`) |
 | Novedades desde la última sincronización | Tablas `runs` y `files` (`first_seen`, `last_changed`) ya guardan el historial |
 | Buscador en todos los materiales | Índice SQLite FTS5 con el texto y los resúmenes (tabla `summaries`, que ya guarda conceptos y puntos clave) |
-| Preguntar a la IA sobre tus materiales | Reutilizar `ai.py` y los resúmenes guardados como contexto |
