@@ -18,6 +18,7 @@ from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 from .ai import DEFAULT_MODEL, MODELS, AIError, AIFatalError, AIProcessor, needs_api, pending
 from .assistant import Assistant
+from .claude_pro import PRO_DIR, write_pro_files
 from .inbox import InboxOrganizer, inbox_dir, inbox_files
 from .library import list_courses
 from .mobile import MobileServer, new_pin
@@ -136,7 +137,7 @@ class App:
             actions, text="Solo analizar (no descargar)", variable=self.dry_var
         ).pack(side="left", padx=10)
 
-        ai = ttk.LabelFrame(self.root, text="Resúmenes con IA (Claude)")
+        ai = ttk.LabelFrame(self.root, text="IA (Claude)")
         ai.pack(fill="x", **pad)
         ai_row1, ai_row2 = ttk.Frame(ai), ttk.Frame(ai)  # dos filas: caben en ventanas estrechas
         ai_row1.pack(fill="x")
@@ -155,6 +156,11 @@ class App:
         ttk.Button(ai_row2, text="Clave de API…", command=self.configure_key).pack(side="left")
         self.pending_btn = ttk.Button(ai_row2, text="Resumir pendientes", command=self.start_pending)
         self.pending_btn.pack(side="left", padx=4)
+        self.pro_var = tk.BooleanVar(value=self.settings.pro_index)
+        ttk.Checkbutton(
+            ai_row2, text="Preparar para Claude Pro (gratis)", variable=self.pro_var,
+            command=self._save_settings,
+        ).pack(side="left", padx=(8, 0))
 
         extra = ttk.LabelFrame(self.root, text="Asistente y apuntes")
         extra.pack(fill="x", **pad)
@@ -386,13 +392,14 @@ class App:
         self._save_settings()
         self._set_busy(True)
         self.status_var.set("Sincronizando…")
-        self.worker.submit(self._task_sync, selected, dest, self.dry_var.get())
+        self.worker.submit(self._task_sync, selected, dest, self.dry_var.get(), self.pro_var.get())
 
     def _save_settings(self) -> None:
         self.settings.dest_dir = self.dest_var.get()
         self.settings.include_past = self.past_var.get()
         self.settings.ai_enabled = self.ai_var.get()
         self.settings.ai_model = self._model_id()
+        self.settings.pro_index = self.pro_var.get()
         self.settings.selected_course_ids = [
             cid for cid, (_, var) in self.course_vars.items() if var.get()
         ]
@@ -421,7 +428,7 @@ class App:
         courses = self.worker.browser.get_courses(include_past)
         self.worker.events.put(("courses", courses))
 
-    def _task_sync(self, courses: list[Course], dest: Path, dry_run: bool) -> None:
+    def _task_sync(self, courses: list[Course], dest: Path, dry_run: bool, pro: bool = False) -> None:
         w = self.worker
         syncer = Syncer(
             w.browser, dest, dry_run=dry_run,
@@ -431,6 +438,9 @@ class App:
             results = syncer.sync(courses)
         finally:
             syncer.close()
+        if pro and not dry_run:
+            write_pro_files(dest, results)  # sin IA: índice y novedades para la app de Claude
+            w.events.put(("log", f"📋 Índice para Claude actualizado en {PRO_DIR}/"))
         w.events.put(("synced", (results, dest, dry_run)))
 
     def _task_inbox(self, dest: Path, model: str) -> None:

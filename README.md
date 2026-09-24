@@ -16,10 +16,14 @@ de tus asignaturas del **Aula Virtual de la UJI** (Moodle).
 - **Bandeja de apuntes**: dejas tus propios apuntes (incluso fotos de apuntes a
   mano) y la IA los coloca en su asignatura y tema.
 - **Desde el móvil**: asistente, subir fotos de apuntes y novedades, en tu wifi.
+- **Modo Claude Pro (gratis)**: si tienes la suscripción Pro de Claude y no
+  quieres pagar la API, UJI Sync prepara un índice para que la app de Claude
+  trabaje con tus materiales de Drive.
 
 ```
 UJI/
 ├── _Bandeja de apuntes/        ← deja aquí tus apuntes para que se organicen
+├── _Para Claude/               ← índice y novedades para la app de Claude (modo Pro)
 ├── Matemáticas/
 │   ├── 00 - General/
 │   │   └── Web de la asignatura.url
@@ -98,6 +102,33 @@ Detalles:
 Alternativa descartada: subir con la API de Google Drive. Obligaría a crear un
 proyecto en Google Cloud y a guardar en el PC un token con acceso a tu Drive, y
 sería mucho más código para el mismo resultado.
+
+## Con Claude Pro, sin pagar la API
+
+La suscripción **Claude Pro no incluye la API**: los resúmenes, el asistente y la
+bandeja de UJI Sync se pagan aparte. Si prefieres no pagar la API, usa tu Pro
+con la app de Claude.
+
+Con la casilla **"Preparar para Claude Pro (gratis)"** (activada por defecto),
+cada sincronización actualiza `UJI/_Para Claude/` sin usar ninguna IA:
+
+- **Índice de materiales.md**: todas tus asignaturas, temas y archivos con su
+  ruta, más el resumen de cada archivo si ya lo tenías y tus apuntes.
+- **Novedades.md**: qué ha llegado o cambiado en cada sincronización.
+- **Cómo usar con Claude.md**: los pasos y el texto listo para copiar.
+
+Para usarlo:
+
+1. En claude.ai o en la app del móvil, ve a **Ajustes → Conectores** y conecta
+   **Google Drive**.
+2. Crea un **Proyecto** «UJI» y pega en sus instrucciones el texto de
+   `Cómo usar con Claude.md`.
+3. Pregunta dentro del proyecto: «¿Qué hay nuevo?», «Resúmeme el tema 3 de
+   Cálculo», «Hazme un test de Cinemática»…
+
+Si Claude no puede abrir algún archivo desde Drive, adjúntalo en el chat.
+Limitación: en este modo la bandeja no puede ordenar los apuntes sola. Puedes
+preguntar a Claude dónde va cada uno y moverlos tú.
 
 ## Resúmenes con IA (Claude)
 
@@ -280,6 +311,7 @@ uji_sync/
   inbox.py     bandeja de apuntes (clasificar, renombrar y mover)
   library.py   asignaturas, temas y materiales que hay en la carpeta UJI
   mobile.py    web para el móvil (servidor con PIN) y mobile_page.html
+  claude_pro.py índice y novedades para la app de Claude (modo Pro, sin API)
   apikey.py    clave de API en el almacén seguro del sistema
   fsutils.py   nombres válidos en Windows, URLs pluginfile.php
   ui.py        interfaz tkinter

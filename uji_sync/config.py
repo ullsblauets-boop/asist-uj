@@ -76,6 +76,7 @@ class Settings:
     ai_enabled: bool = False          # resumir con IA los archivos nuevos
     ai_model: str = "claude-opus-5"
     ai_consent: bool = False          # el usuario aceptó enviar materiales a Anthropic
+    pro_index: bool = True            # preparar _Para Claude (índice para la app, sin coste)
     mobile_pin: str = ""              # PIN de la web para el móvil (se genera la primera vez)
 
     @classmethod
