@@ -11,11 +11,16 @@ import queue
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
-from .config import BASE_URL, Settings, browser_profile_dir, find_google_drive
+from .ai import DEFAULT_MODEL, MODELS, AIProcessor, needs_api, pending
+from .apikey import get_api_key, has_credentials, set_api_key, delete_api_key
+from .config import BASE_URL, Settings, browser_profile_dir, find_google_drive, registry_path
 from .moodle import Course, LoginCancelled, MoodleBrowser
-from .sync import Syncer, format_summary
+from .registry import Registry
+from .sync import CourseResult, Syncer, format_summary
+
+AI_CONFIRM_OVER = 20  # pedir confirmación si hay más archivos que resumir
 
 
 class Worker(threading.Thread):
@@ -62,7 +67,7 @@ class App:
         self.busy = False
 
         root.title("UJI Sync")
-        root.geometry("720x620")
+        root.geometry("720x680")
         root.minsize(520, 480)
         self._build()
         root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -124,6 +129,23 @@ class App:
             actions, text="Solo analizar (no descargar)", variable=self.dry_var
         ).pack(side="left", padx=10)
 
+        ai = ttk.LabelFrame(self.root, text="Resúmenes con IA (Claude)")
+        ai.pack(fill="x", **pad)
+        self.ai_var = tk.BooleanVar(value=self.settings.ai_enabled)
+        ttk.Checkbutton(
+            ai, text="Resumir con IA los archivos nuevos", variable=self.ai_var,
+            command=self.toggle_ai,
+        ).pack(side="left")
+        self.model_var = tk.StringVar(
+            value=MODELS.get(self.settings.ai_model, MODELS[DEFAULT_MODEL]))
+        ttk.Combobox(
+            ai, textvariable=self.model_var, values=list(MODELS.values()),
+            state="readonly", width=30,
+        ).pack(side="left", padx=6)
+        ttk.Button(ai, text="Clave de API…", command=self.configure_key).pack(side="left")
+        self.pending_btn = ttk.Button(ai, text="Resumir pendientes", command=self.start_pending)
+        self.pending_btn.pack(side="left", padx=4)
+
         self.log_box = scrolledtext.ScrolledText(self.root, height=12, state="disabled")
         self.log_box.pack(fill="both", expand=True, **pad)
 
@@ -160,9 +182,89 @@ class App:
     def _set_busy(self, busy: bool) -> None:
         self.busy = busy
         self.login_btn.configure(state="disabled" if busy else "normal")
+        self.pending_btn.configure(state="disabled" if busy else "normal")
         self.sync_btn.configure(
             state="disabled" if busy or not self.course_vars else "normal"
         )
+
+    # ------------------------------------------------------------------ IA
+    def _model_id(self) -> str:
+        label = self.model_var.get()
+        return next((k for k, v in MODELS.items() if v == label), DEFAULT_MODEL)
+
+    def _ensure_ai_ready(self) -> bool:
+        if not self.settings.ai_consent:
+            ok = messagebox.askyesno(
+                "UJI Sync",
+                "Para resumir tus materiales, UJI Sync los envía a la API de Claude "
+                "(Anthropic).\n\n"
+                "· Se cobra por uso en tu cuenta de Anthropic (solo se resume cada "
+                "archivo una vez).\n"
+                "· Los resúmenes son para tu estudio personal: no los redistribuyas.\n\n"
+                "¿Quieres activarlo?",
+            )
+            if not ok:
+                return False
+            self.settings.ai_consent = True
+            self.settings.save()
+        if not has_credentials():
+            self.configure_key()
+        return has_credentials()
+
+    def toggle_ai(self) -> None:
+        if self.ai_var.get() and not self._ensure_ai_ready():
+            self.ai_var.set(False)
+        self._save_settings()
+
+    def configure_key(self) -> None:
+        key = simpledialog.askstring(
+            "Clave de API de Claude",
+            "Pega tu clave de API de Anthropic (empieza por «sk-ant-»).\n"
+            "Se consigue en https://console.anthropic.com/ → API Keys.\n\n"
+            "Se guardará en el Administrador de credenciales de Windows.\n"
+            "Déjalo vacío para borrar la clave guardada.",
+            show="*", parent=self.root,
+        )
+        if key is None:
+            return
+        if not key.strip():
+            if get_api_key() and messagebox.askyesno("UJI Sync", "¿Borrar la clave guardada?"):
+                delete_api_key()
+            return
+        if set_api_key(key):
+            messagebox.showinfo("UJI Sync", "Clave guardada de forma segura.")
+        else:
+            messagebox.showerror(
+                "UJI Sync",
+                "No se pudo guardar la clave en el almacén de credenciales.\n"
+                "Como alternativa, define la variable de entorno ANTHROPIC_API_KEY.",
+            )
+
+    def start_pending(self) -> None:
+        """Resume los archivos ya descargados que aún no tienen resumen."""
+        if not self._ensure_ai_ready():
+            return
+        dest = Path(self.dest_var.get()).expanduser()
+        ids = [cid for cid, (_, var) in self.course_vars.items() if var.get()] or None
+        reg = Registry(registry_path(dest))
+        try:
+            recs = pending(reg, dest, ids)
+            to_send = sum(needs_api(reg, r) for r in recs)
+        finally:
+            reg.close()
+        if not recs:
+            messagebox.showinfo("UJI Sync", "No hay materiales pendientes de resumir.")
+            return
+        if to_send and not messagebox.askyesno(
+            "UJI Sync",
+            f"Hay {len(recs)} archivos sin resumen; {to_send} se enviarán a Claude "
+            "(tiene coste).\n\n¿Continuar?",
+        ):
+            return
+        self._save_settings()
+        self._set_busy(True)
+        self.status_var.set("Resumiendo con IA…")
+        self.worker.submit(self._task_ai, dest, [r.key for r in recs], "", self._model_id())
 
     # ------------------------------------------------------------ acciones
     def start_login(self) -> None:
@@ -189,6 +291,8 @@ class App:
     def _save_settings(self) -> None:
         self.settings.dest_dir = self.dest_var.get()
         self.settings.include_past = self.past_var.get()
+        self.settings.ai_enabled = self.ai_var.get()
+        self.settings.ai_model = self._model_id()
         self.settings.selected_course_ids = [
             cid for cid, (_, var) in self.course_vars.items() if var.get()
         ]
@@ -225,7 +329,20 @@ class App:
             results = syncer.sync(courses)
         finally:
             syncer.close()
-        w.events.put(("summary", format_summary(results, dry_run)))
+        w.events.put(("synced", (results, dest, dry_run)))
+
+    def _task_ai(self, dest: Path, keys: list[str], prefix: str, model: str) -> None:
+        w = self.worker
+        reg = Registry(registry_path(dest))
+        try:
+            records = [r for k in keys if (r := reg.get(k))]
+            proc = AIProcessor(dest, reg, model=model,
+                               log=lambda t: w.events.put(("log", t)), should_stop=w.stop.is_set)
+            ai_text = proc.process(records).text()
+        finally:
+            reg.close()
+        text = "\n\n".join(t for t in (prefix, ai_text) if t) or "No había nada que resumir."
+        w.events.put(("summary", text))
 
     # ------------------------------------------------ eventos (hilo de UI)
     def _poll_events(self) -> None:
@@ -260,6 +377,27 @@ class App:
             self.course_vars[c.id] = (c, var)
         self.status_var.set(f"{len(courses)} asignaturas encontradas. Marca las que quieras sincronizar.")
         self._set_busy(False)
+
+    def _on_synced(self, payload: tuple[list[CourseResult], Path, bool]) -> None:
+        results, dest, dry_run = payload
+        text = format_summary(results, dry_run)
+        keys = [k for r in results for k in r.changed_keys]
+        if dry_run or not self.ai_var.get() or not keys:
+            return self._on_summary(text)
+        reg = Registry(registry_path(dest))
+        try:
+            to_send = sum(needs_api(reg, rec) for k in keys if (rec := reg.get(k)))
+        finally:
+            reg.close()
+        if to_send > AI_CONFIRM_OVER and not messagebox.askyesno(
+            "UJI Sync",
+            f"{text}\n\nHay {to_send} archivos nuevos para resumir con IA (tiene coste). "
+            "¿Resumirlos ahora?\n(Si dices que no, podrás hacerlo luego con "
+            "«Resumir pendientes».)",
+        ):
+            return self._on_summary(text)
+        self.status_var.set("Resumiendo con IA…")
+        self.worker.submit(self._task_ai, dest, keys, text, self._model_id())
 
     def _on_summary(self, text: str) -> None:
         self._set_busy(False)

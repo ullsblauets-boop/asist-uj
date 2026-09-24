@@ -1,1 +1,6 @@
 playwright>=1.40
+# Resúmenes con IA
+anthropic>=1.8
+python-docx>=1.1
+python-pptx>=1.0
+keyring>=25

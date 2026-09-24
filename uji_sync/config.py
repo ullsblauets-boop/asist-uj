@@ -73,6 +73,9 @@ class Settings:
     dest_dir: str = field(default_factory=lambda: str(default_dest_dir()))
     selected_course_ids: list[int] = field(default_factory=list)
     include_past: bool = False
+    ai_enabled: bool = False          # resumir con IA los archivos nuevos
+    ai_model: str = "claude-opus-5"
+    ai_consent: bool = False          # el usuario aceptó enviar materiales a Anthropic
 
     @classmethod
     def load(cls) -> "Settings":

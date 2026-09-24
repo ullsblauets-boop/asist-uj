@@ -36,6 +36,7 @@ class CourseResult:
     unchanged: int = 0
     skipped: list[str] = field(default_factory=list)   # no descargables / sin permiso
     errors: list[str] = field(default_factory=list)
+    changed_keys: list[str] = field(default_factory=list)  # archivos nuevos o actualizados
 
     def line(self, dry_run: bool = False) -> str:
         n, u = len(self.new), len(self.updated)
@@ -202,6 +203,8 @@ class Syncer:
             res.updated.append(name)
             self.log(f"  ↻ {local}")
             self._write(local, data)
+            if kind == "file":
+                res.changed_keys.append(key)
         elif rec is None and self._is_unregistered_copy(str(wanted), sha):
             # Ya estaba en la carpeta (p. ej. en Google Drive, sincronizado desde
             # otro PC): se registra sin duplicarlo.
@@ -212,6 +215,8 @@ class Syncer:
             res.new.append(name)
             self.log(f"  + {local}")
             self._write(local, data)
+            if kind == "file":
+                res.changed_keys.append(key)
         ts = now()
         self.registry.upsert(FileRecord(
             key=key, kind=kind, course_id=course.id, course_name=course.fullname,

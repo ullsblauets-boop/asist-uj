@@ -10,6 +10,8 @@ de tus asignaturas del **Aula Virtual de la UJI** (Moodle).
   enlaces como accesos directos `.url`.
 - Organiza por asignatura y por sección/tema, y no duplica lo ya descargado.
 - Puede guardar todo directamente en **Google Drive**.
+- Opcional: **resume con IA (Claude)** cada material nuevo: idea principal,
+  resumen, puntos clave, conceptos y preguntas de repaso.
 
 ```
 UJI/
@@ -19,6 +21,10 @@ UJI/
 │   ├── 01 - Tema 1_ Introducción/
 │   │   ├── Tema 1.pdf
 │   │   └── Prácticas/          ← Carpeta de Moodle, con sus subcarpetas
+│   ├── _resumenes_IA/          ← resúmenes con IA, con la misma estructura de temas
+│   │   ├── Novedades.md
+│   │   └── 01 - Tema 1_ Introducción/
+│   │       └── Tema 1.pdf - resumen.md
 │   └── _versiones_anteriores/  ← copias antiguas si el profesor sustituye un archivo
 └── Física/
 ```
@@ -87,7 +93,57 @@ Alternativa descartada: subir con la API de Google Drive. Obligaría a crear un
 proyecto en Google Cloud y a guardar en el PC un token con acceso a tu Drive, y
 sería mucho más código para el mismo resultado.
 
-### Diagnóstico
+## Resúmenes con IA (Claude)
+
+Cuando se descarga un material nuevo, Claude lo lee y deja un resumen en
+`<Asignatura>/_resumenes_IA/`, con la misma estructura de temas (y, si usas Google
+Drive, también en Drive). Cada resumen incluye:
+
+- **En una frase**: la idea principal.
+- **Resumen**, **puntos clave** y **conceptos** con su definición.
+- **Preguntas de repaso**, para autoevaluarte.
+- Un enlace al archivo original.
+
+Además, `_resumenes_IA/Novedades.md` va acumulando (lo más reciente arriba) qué
+ha llegado en cada sincronización y de qué trata.
+
+Formatos: **PDF** (Claude ve también tablas, fórmulas e imágenes), **Word
+(.docx)**, **PowerPoint (.pptx)**, incluidas las notas del orador, y texto. Los
+Excel, imágenes sueltas y formatos antiguos (.doc, .ppt) no se resumen.
+
+### Activarlo
+
+1. Crea una clave de API en <https://console.anthropic.com/> (API Keys) y añade
+   saldo. **Es de pago por uso** y va aparte de cualquier suscripción a Claude.
+2. En UJI Sync marca **"Resumir con IA los archivos nuevos"**. La primera vez te
+   pedirá la clave: se guarda en el **Administrador de credenciales de Windows**,
+   nunca en un archivo. Para cambiarla o borrarla, usa **"Clave de API…"**.
+3. Sincroniza. Al final verás los resúmenes creados y el coste aproximado.
+
+Para resumir materiales que ya tenías descargados, pulsa **"Resumir pendientes"**
+(usa las asignaturas marcadas, o todas si no hay ninguna marcada).
+
+### Coste y control
+
+- Modelo por defecto: **Claude Opus 5**, el de mejor calidad. Un PDF típico de
+  unas 30 páginas cuesta aproximadamente entre 0,10 y 0,40 US$. En el desplegable
+  puedes elegir **Claude Sonnet 5**, que cuesta menos de la mitad.
+- **Cada contenido se resume una sola vez.** El resumen se guarda por la huella
+  del archivo: resincronizar, mover o volver a descargar el mismo archivo no
+  cuesta nada. Si borras un `.md`, se regenera gratis.
+- Si en una sincronización hay **más de 20 archivos** que resumir, UJI Sync te
+  pide confirmación antes de enviarlos.
+- Los PDF de más de 22 MB y los documentos larguísimos se omiten (se avisa en el
+  registro) en vez de recortarse.
+
+### Privacidad
+
+Para resumir un archivo, su contenido se envía a la API de Anthropic. La primera
+vez que actives la función te lo recordará. Los resúmenes son para tu estudio
+personal: no redistribuyas los materiales ni los resúmenes. Son generados por IA
+y pueden contener errores; consulta siempre el original.
+
+## Diagnóstico
 
 Si algo no funciona, ejecuta el diagnóstico. No descarga nada: dice si detecta
 Google Drive, comprueba el login, lista tus cursos y muestra cómo se lee un curso.
@@ -107,9 +163,11 @@ Google Drive, comprueba el login, lista tus cursos y muestra cómo se lee un cur
   `%LOCALAPPDATA%\UJISync\config.json`, y el registro de descargas en
   `%LOCALAPPDATA%\UJISync\registros\`.
 - Las peticiones se hacen de una en una y con una pausa, para no cargar el servidor.
+- La clave de la API de Claude (si usas los resúmenes) se guarda en el
+  Administrador de credenciales de Windows.
 - Usa los materiales solo para ti: no los redistribuyas.
 
-## Qué hace y qué no hace (v0.1)
+## Qué hace y qué no hace
 
 | Elemento de Moodle | Qué hace UJI Sync |
 |---|---|
@@ -138,7 +196,9 @@ uji_sync/
   config.py    rutas, preferencias y detección de Google Drive (nunca credenciales)
   moodle.py    navegador + login manual + lectura de cursos/secciones/recursos
   sync.py      descarga, organización, duplicados y resumen
-  registry.py  registro SQLite (archivos y ejecuciones)
+  registry.py  registro SQLite (archivos, ejecuciones y resúmenes)
+  ai.py        resúmenes con Claude (extracción, petición, .md, novedades)
+  apikey.py    clave de API en el almacén seguro del sistema
   fsutils.py   nombres válidos en Windows, URLs pluginfile.php
   ui.py        interfaz tkinter
   cli.py       entrada: interfaz o --diagnostico
@@ -147,7 +207,7 @@ tests/         pruebas con un Moodle simulado (no es el Aula Virtual real)
 
 Pruebas: `pip install -r requirements-dev.txt` y luego `python -m pytest`.
 
-## Preparado para el futuro (Fase 4, no implementado)
+## Preparado para el futuro (resto de la Fase 4)
 
 Cada función futura encaja en una pieza existente, sin reescribir nada:
 
@@ -156,5 +216,5 @@ Cada función futura encaja en una pieza existente, sin reescribir nada:
 | Tareas y fechas de entrega, calendario | Nuevo método en `MoodleBrowser` con una función AJAX de Moodle (*se verificará antes de usarla*) + tabla nueva en `registry.py` |
 | Anuncios nuevos | Leer el foro "Avisos" (`modtype_forum`, ya detectado en `get_course_sections`) |
 | Novedades desde la última sincronización | Tablas `runs` y `files` (`first_seen`, `last_changed`) ya guardan el historial |
-| Buscador en todos los materiales | Extraer texto de los archivos a un índice SQLite FTS5 junto al registro |
-| Resúmenes / análisis de PDFs con IA | Módulo aparte que lea los archivos registrados; no toca la sincronización |
+| Buscador en todos los materiales | Índice SQLite FTS5 con el texto y los resúmenes (tabla `summaries`, que ya guarda conceptos y puntos clave) |
+| Preguntar a la IA sobre tus materiales | Reutilizar `ai.py` y los resúmenes guardados como contexto |

@@ -69,17 +69,19 @@ def test_full_flow(env):
         "Matemáticas/01 - Tema 1_ Introducción/Tema 1.pdf",
     ]
     assert len(r.new) == 6 and r.unchanged == 0
+    assert len(r.changed_keys) == 5  # los archivos (no el .url) pasan a la IA
     assert r.skipped == ["privado.pdf"]  # sin permiso: no se fuerza
     assert "Matemáticas → 6 archivos nuevos, 0 sin cambios, 1 no disponibles" in format_summary([r])
 
     # Segunda: nada nuevo, sin duplicados
     r = run(browser, dest)
-    assert (len(r.new), len(r.updated), r.unchanged) == (0, 0, 6)
+    assert (len(r.new), len(r.updated), r.unchanged) == (0, 0, 6) and r.changed_keys == []
 
     # El profesor sustituye el PDF (nueva revisión): se actualiza y se guarda la versión anterior
     fake.resource_rev, fake.resource_body = 2, b"%PDF-1.4 tema 1 v2"
     r = run(browser, dest)
     assert r.updated == ["Tema 1.pdf"] and r.unchanged == 5
+    assert r.changed_keys == ["pluginfile:50/mod_resource/content/Tema 1.pdf"]
     tema = dest / "Matemáticas/01 - Tema 1_ Introducción/Tema 1.pdf"
     assert tema.read_bytes() == b"%PDF-1.4 tema 1 v2"
     old = [f for f in files_in(dest) if "_versiones_anteriores" in f]

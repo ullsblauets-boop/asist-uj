@@ -6,6 +6,7 @@ rutas relativas, así que la carpeta UJI se puede mover sin perder el historial.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
@@ -43,6 +44,15 @@ CREATE TABLE IF NOT EXISTS run_courses (
     unchanged   INTEGER NOT NULL,
     skipped     INTEGER NOT NULL,
     errors      INTEGER NOT NULL
+);
+-- Resúmenes de IA indexados por contenido: el mismo archivo nunca se paga dos veces.
+CREATE TABLE IF NOT EXISTS summaries (
+    sha256        TEXT PRIMARY KEY,
+    model         TEXT NOT NULL,
+    created       TEXT NOT NULL,
+    data          TEXT NOT NULL,     -- JSON con título, resumen, puntos clave...
+    input_tokens  INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL
 );
 """
 
@@ -105,6 +115,31 @@ class Registry:
     def touch(self, key: str, url: str) -> None:
         self.conn.execute(
             "UPDATE files SET last_seen = ?, url = ? WHERE key = ?", (now(), url, key)
+        )
+        self.conn.commit()
+
+    def files(self, course_ids: list[int] | None = None) -> list[FileRecord]:
+        sql, args = "SELECT * FROM files WHERE kind = 'file'", []
+        if course_ids is not None:
+            sql += f" AND course_id IN ({','.join('?' * len(course_ids))})"
+            args = list(course_ids)
+        rows = self.conn.execute(sql + " ORDER BY local_path", args).fetchall()
+        return [FileRecord(**dict(r)) for r in rows]
+
+    def get_summary(self, sha256: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT data, model, created FROM summaries WHERE sha256 = ?", (sha256,)
+        ).fetchone()
+        if not row:
+            return None
+        return {**json.loads(row["data"]), "_model": row["model"], "_created": row["created"]}
+
+    def save_summary(self, sha256: str, model: str, data: dict,
+                     input_tokens: int, output_tokens: int) -> None:
+        self.conn.execute(
+            "INSERT OR REPLACE INTO summaries VALUES (?, ?, ?, ?, ?, ?)",
+            (sha256, model, now(), json.dumps(data, ensure_ascii=False),
+             input_tokens, output_tokens),
         )
         self.conn.commit()
 
