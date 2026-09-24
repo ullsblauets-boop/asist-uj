@@ -1,51 +1,30 @@
-# UJI Sync
+# UJI Study Assistant
 
-Herramienta personal para descargar y organizar automáticamente los materiales
-de tus asignaturas del **Aula Virtual de la UJI** (Moodle).
+Aplicación personal para el día a día de la carrera en la **Universitat Jaume I**:
 
-- **Tú** inicias sesión a mano en una ventana del navegador (SSO + doble factor).
-- UJI Sync **no pide ni guarda tu contraseña**: trabaja con la sesión que tú abres
-  y solo ve lo que Moodle ya te deja ver.
-- Descarga PDF, PowerPoint, Word, Excel, imágenes y otros archivos, y guarda los
-  enlaces como accesos directos `.url`.
-- Organiza por asignatura y por sección/tema, y no duplica lo ya descargado.
-- Puede guardar todo directamente en **Google Drive**.
-- Opcional: **resume con IA (Claude)** cada material nuevo: idea principal,
-  resumen, puntos clave, conceptos y preguntas de repaso.
-- **Asistente de estudio**: un chat al que preguntar sobre tus materiales.
-- **Bandeja de apuntes**: dejas tus propios apuntes (incluso fotos de apuntes a
-  mano) y la IA los coloca en su asignatura y tema.
-- **Desde el móvil**: asistente, subir fotos de apuntes y novedades, en tu wifi.
-- **Modo Claude Pro (gratis)**: si tienes la suscripción Pro de Claude y no
-  quieres pagar la API, UJI Sync prepara un índice para que la app de Claude
-  trabaje con tus materiales de Drive.
+1. **Aula Virtual**: descarga y organiza los materiales de tus asignaturas.
+2. **Biblioteca de apuntes**: tus fotos, PDF y ejercicios, etiquetados por
+   asignatura, tema, tipo y profesor.
+3. **Asistente de estudio** basado en tus materiales (en desarrollo por fases).
 
-```
-UJI/
-├── _Bandeja de apuntes/        ← deja aquí tus apuntes para que se organicen
-├── _Para Claude/               ← índice y novedades para la app de Claude (modo Pro)
-├── Matemáticas/
-│   ├── 00 - General/
-│   │   └── Web de la asignatura.url
-│   ├── 01 - Tema 1_ Introducción/
-│   │   ├── Tema 1.pdf
-│   │   └── Prácticas/          ← Carpeta de Moodle, con sus subcarpetas
-│   ├── Mis apuntes/            ← tus apuntes, organizados por tema
-│   ├── _resumenes_IA/          ← resúmenes con IA, con la misma estructura de temas
-│   │   ├── Novedades.md
-│   │   └── 01 - Tema 1_ Introducción/
-│   │       └── Tema 1.pdf - resumen.md
-│   └── _versiones_anteriores/  ← copias antiguas si el profesor sustituye un archivo
-└── Física/
-```
+Funciona en el navegador del PC y, opcionalmente, en el móvil dentro de tu wifi.
 
-La investigación previa (tecnología, API, autenticación, límites) está en
-[`docs/FASE1-investigacion.md`](docs/FASE1-investigacion.md).
+## Estado de las fases
+
+| Fase | Contenido | Estado |
+|---|---|---|
+| 1 | Investigación del Aula Virtual / Moodle ([informe](docs/FASE1-investigacion.md)) | ✅ |
+| 2 | Sincronización del Aula Virtual | ✅ (pendiente de probar con tu cuenta) |
+| 3 | Biblioteca de documentos con etiquetas | ✅ |
+| 4 | Búsqueda dentro del contenido de los documentos | ⏳ siguiente |
+| 5 | Resolver ejercicio con fotos | ⏳ |
+| 6 | Modo «Como mis apuntes / profesor» | ⏳ |
+| 7 | Tareas, entregas y calendario | ⏳ |
 
 ## Instalación en Windows
 
 1. Instala **Python 3.10 o superior** desde <https://www.python.org/downloads/>
-   (marca *"Add python.exe to PATH"*). `tkinter` viene incluido.
+   (marca *"Add python.exe to PATH"*).
 2. Abre **PowerShell** en la carpeta del proyecto y ejecuta:
 
    ```powershell
@@ -53,281 +32,149 @@ La investigación previa (tecnología, API, autenticación, límites) está en
    .venv\Scripts\pip install -r requirements.txt
    ```
 
-3. UJI Sync usa **Microsoft Edge**, que ya viene con Windows. Si no lo tuvieras:
-   `.venv\Scripts\python -m playwright install chromium`.
+3. Usa **Microsoft Edge** (viene con Windows) para el inicio de sesión en el
+   Aula Virtual. Si no lo tuvieras: `.venv\Scripts\python -m playwright install chromium`.
 
 ## Uso
 
-Haz doble clic en **`UJI Sync.bat`** (o `.venv\Scripts\python -m uji_sync`).
+Haz doble clic en **`UJI Study Assistant.bat`**. Se abre una ventana negra (el
+servidor: déjala abierta) y la aplicación en tu navegador, en
+<http://127.0.0.1:8765>. Para salir, cierra la ventana negra.
 
-1. Pulsa **"1. Abrir Aula Virtual e iniciar sesión"**. Se abre Edge: inicia sesión
-   con tu cuenta UJI como siempre (incluido el doble factor).
-2. La aplicación detecta que has entrado y muestra tus asignaturas.
-3. Marca las que quieras y pulsa **"Sincronizar Aula Virtual"**.
-4. Al terminar verás el resumen:
+| Sección | Qué hace |
+|---|---|
+| 🏠 **Inicio** | Última sincronización, materiales, bandeja y novedades de los últimos 14 días. |
+| 📚 **Mis asignaturas** | Asignaturas con sus temas y materiales por tipo. Aquí indicas el **profesor** de cada una. |
+| 📥 **Sincronizar Aula Virtual** | 1) Se abre Edge y **tú** inicias sesión. 2) Marcas las asignaturas. 3) Sincronizas. Puedes solo analizar primero. |
+| 📖 **Biblioteca de apuntes** | Todo tu material con filtros (asignatura, tema, tipo, origen, texto). Subes fotos, capturas y PDF, y editas las etiquetas. |
+| 📷 **Resolver ejercicio** | Próximamente (Fase 5). |
+| 🔎 **Buscar en mis apuntes** | Busca por nombre y descripción. Con la IA activada, puedes **preguntar** a tus materiales. |
+| 📅 **Tareas y entregas** | Próximamente (Fase 7). |
+| ⚙️ **Configuración** | Carpeta (o Google Drive), IA, modo Claude Pro y acceso desde el móvil. |
 
-   ```
-   Sincronización completada
+### Seguridad del Aula Virtual
 
-   Matemáticas → 3 archivos nuevos, 12 sin cambios
-   Física → 0 archivos nuevos, 8 sin cambios
-   ```
+- **Tú** inicias sesión en una ventana de Edge normal (SSO y doble factor). La
+  aplicación **no pide ni guarda tu contraseña** y no se salta ningún control.
+- Solo accede a lo que tu cuenta puede ver, y lo que no se puede descargar se
+  marca como «no disponible».
+- La sesión queda en `%LOCALAPPDATA%\UJISync\browser-profile`. Para cerrarla,
+  borra esa carpeta.
 
-Consejo: la primera vez marca **"Solo analizar (no descargar)"** para ver qué
-se descargaría sin escribir nada en disco.
+## Organización de la carpeta
 
-## Guardar en Google Drive
+Las carpetas siguen **los temas del Aula Virtual**, tal cual los organiza el
+profesor. El **tipo** de material es una etiqueta (se filtra en la biblioteca), así
+que nunca se mueve un archivo del profesor por clasificarlo mal.
 
-1. Instala **Google Drive para ordenadores**
-   (<https://www.google.com/drive/download/>) e inicia sesión con tu cuenta de Google.
-   Drive aparecerá en el Explorador de Windows, normalmente como `G:\Mi unidad`.
-2. En UJI Sync pulsa **"Usar Google Drive"**: la carpeta de destino pasa a ser
-   `G:\Mi unidad\UJI`.
-3. Sincroniza como siempre. Google Drive sube los archivos solo, con la misma
-   organización por asignatura y tema, y los verás en <https://drive.google.com>
-   y en el móvil.
+```
+UJI Study/
+├── _Bandeja de apuntes/        ← archivos pendientes de organizar (p. ej. desde el móvil)
+├── _Para Claude/               ← índice y novedades para la app de Claude (modo Pro)
+├── Cálculo I/
+│   ├── 00 - General/
+│   ├── 03 - Tema 3_ Derivadas/ ← materiales del Aula Virtual
+│   ├── Mis apuntes/
+│   │   └── 03 - Tema 3_ Derivadas/   ← tus fotos y apuntes de ese tema
+│   ├── _resumenes_IA/          ← (opcional) resúmenes con IA
+│   └── _versiones_anteriores/  ← copias antiguas si el profesor sustituye un archivo
+└── Física I/
+```
 
-Detalles:
+**Tipos de material:** Teoría · Apuntes · Problemas · Ejercicios · Ejercicios
+corregidos · Exámenes · Prácticas · Pizarra · Otros.
 
-- UJI Sync no necesita permisos sobre tu cuenta de Google: solo escribe en una
-  carpeta de tu PC, y la app oficial de Google se encarga de subirla.
-- El **registro** de descargas se guarda en tu PC
-  (`%LOCALAPPDATA%\UJISync\registros\`), no en Drive, para evitar que Drive
-  bloquee o duplique la base de datos mientras se usa.
-- Si usas UJI Sync en **otro PC** con el mismo Drive, los archivos que ya estén
-  en Drive y sean idénticos se reconocen y no se duplican.
-- Si Drive no se detecta (por ejemplo, porque lo tienes en otra letra o en otro
-  idioma), elige la carpeta a mano con **"Cambiar…"**.
+- A los archivos del Aula Virtual se les propone un tipo según su nombre
+  (gratis y sin IA). Por ejemplo, «Boletín 3» pasa a Problemas y «Examen parcial»
+  a Exámenes. Se puede corregir con «Editar».
+- Tus apuntes se guardan en `Mis apuntes/<Tema>/`. Si les cambias la asignatura
+  o el tema, el archivo se mueve a su carpeta.
+- Los archivos del Aula Virtual no se mueven nunca: solo cambian sus etiquetas.
+- Las etiquetas se guardan en el registro local
+  (`%LOCALAPPDATA%\UJISync\registros\`) y se conservan entre sincronizaciones.
 
-Alternativa descartada: subir con la API de Google Drive. Obligaría a crear un
-proyecto en Google Cloud y a guardar en el PC un token con acceso a tu Drive, y
-sería mucho más código para el mismo resultado.
+## Google Drive
 
-## Con Claude Pro, sin pagar la API
+Instala **Google Drive para ordenadores** y, en ⚙️ Configuración, pulsa
+**"Usar Google Drive"**: la biblioteca pasa a `G:\Mi unidad\UJI Study` y estará
+también en el móvil y en drive.google.com. Si usas la aplicación en otro PC con el
+mismo Drive, los archivos idénticos se reconocen y no se duplican.
 
-La suscripción **Claude Pro no incluye la API**: los resúmenes, el asistente y la
-bandeja de UJI Sync se pagan aparte. Si prefieres no pagar la API, usa tu Pro
-con la app de Claude.
+## IA (opcional)
 
-Con la casilla **"Preparar para Claude Pro (gratis)"** (activada por defecto),
-cada sincronización actualiza `UJI/_Para Claude/` sin usar ninguna IA:
+Las funciones de IA usan la **API de Claude**, que **se paga por uso y va aparte
+de la suscripción Claude Pro**. Sin activar la IA, todo lo demás funciona gratis.
 
-- **Índice de materiales.md**: todas tus asignaturas, temas y archivos con su
-  ruta, más el resumen de cada archivo si ya lo tenías y tus apuntes.
-- **Novedades.md**: qué ha llegado o cambiado en cada sincronización.
-- **Cómo usar con Claude.md**: los pasos y el texto listo para copiar.
+| Función | Necesita API |
+|---|---|
+| Sincronizar, organizar, biblioteca, etiquetas, filtros | No |
+| Índice para la app de Claude (modo Pro) | No |
+| Resúmenes automáticos de los materiales | Sí |
+| Preguntar a tus materiales | Sí |
+| Subir con asignatura «Automático» / organizar la bandeja | Sí |
+| Resolver ejercicio (Fase 5) | Sí |
 
-Para usarlo:
+Para activarla, en ⚙️ Configuración:
 
-1. En claude.ai o en la app del móvil, ve a **Ajustes → Conectores** y conecta
-   **Google Drive**.
-2. Crea un **Proyecto** «UJI» y pega en sus instrucciones el texto de
-   `Cómo usar con Claude.md`.
-3. Pregunta dentro del proyecto: «¿Qué hay nuevo?», «Resúmeme el tema 3 de
-   Cálculo», «Hazme un test de Cinemática»…
+1. Acepta el aviso de privacidad: tus materiales se envían a Anthropic cuando
+   usas la IA.
+2. Pega tu clave de API, que se crea en <https://console.anthropic.com/>. Se
+   guarda en el **Administrador de credenciales de Windows**, nunca en un archivo.
+3. Elige el modelo: Claude Opus 5 (mejor calidad) o Claude Sonnet 5 (más barato).
 
-Si Claude no puede abrir algún archivo desde Drive, adjúntalo en el chat.
-Limitación: en este modo la bandeja no puede ordenar los apuntes sola. Puedes
-preguntar a Claude dónde va cada uno y moverlos tú.
+Cada material se resume una sola vez, porque se reconoce por su contenido. Si una
+sincronización trae más de 20 archivos, no se resumen automáticamente: lo decides
+tú con «Resumir pendientes». En cada respuesta se muestra el coste aproximado.
 
-## Resúmenes con IA (Claude)
+### Con Claude Pro, sin pagar la API
 
-Cuando se descarga un material nuevo, Claude lo lee y deja un resumen en
-`<Asignatura>/_resumenes_IA/`, con la misma estructura de temas (y, si usas Google
-Drive, también en Drive). Cada resumen incluye:
-
-- **En una frase**: la idea principal.
-- **Resumen**, **puntos clave** y **conceptos** con su definición.
-- **Preguntas de repaso**, para autoevaluarte.
-- Un enlace al archivo original.
-
-Además, `_resumenes_IA/Novedades.md` va acumulando (lo más reciente arriba) qué
-ha llegado en cada sincronización y de qué trata.
-
-Formatos: **PDF** (Claude ve también tablas, fórmulas e imágenes), **Word
-(.docx)**, **PowerPoint (.pptx)**, incluidas las notas del orador, y texto. Los
-Excel, imágenes sueltas y formatos antiguos (.doc, .ppt) no se resumen.
-
-### Activarlo
-
-1. Crea una clave de API en <https://console.anthropic.com/> (API Keys) y añade
-   saldo. **Es de pago por uso** y va aparte de cualquier suscripción a Claude.
-2. En UJI Sync marca **"Resumir con IA los archivos nuevos"**. La primera vez te
-   pedirá la clave: se guarda en el **Administrador de credenciales de Windows**,
-   nunca en un archivo. Para cambiarla o borrarla, usa **"Clave de API…"**.
-3. Sincroniza. Al final verás los resúmenes creados y el coste aproximado.
-
-Para resumir materiales que ya tenías descargados, pulsa **"Resumir pendientes"**
-(usa las asignaturas marcadas, o todas si no hay ninguna marcada).
-
-### Coste y control
-
-- Modelo por defecto: **Claude Opus 5**, el de mejor calidad. Un PDF típico de
-  unas 30 páginas cuesta aproximadamente entre 0,10 y 0,40 US$. En el desplegable
-  puedes elegir **Claude Sonnet 5**, que cuesta menos de la mitad.
-- **Cada contenido se resume una sola vez.** El resumen se guarda por la huella
-  del archivo: resincronizar, mover o volver a descargar el mismo archivo no
-  cuesta nada. Si borras un `.md`, se regenera gratis.
-- Si en una sincronización hay **más de 20 archivos** que resumir, UJI Sync te
-  pide confirmación antes de enviarlos.
-- Los PDF de más de 22 MB y los documentos larguísimos se omiten (se avisa en el
-  registro) en vez de recortarse.
-
-### Privacidad
-
-Para resumir un archivo, su contenido se envía a la API de Anthropic. La primera
-vez que actives la función te lo recordará. Los resúmenes son para tu estudio
-personal: no redistribuyas los materiales ni los resúmenes. Son generados por IA
-y pueden contener errores; consulta siempre el original.
-
-## Asistente de estudio
-
-Pulsa **"💬 Asistente"**, elige una asignatura (o todas) y pregunta lo que quieras:
-
-- «¿Qué entra en el tema 3?»
-- «Explícame la regla de la cadena con un ejemplo de mis apuntes»
-- «Hazme 5 preguntas tipo test del tema 2»
-- «¿En qué se diferencian el MRU y el MRUA?»
-
-Cómo funciona:
-
-- El asistente conoce **todos tus materiales**: los del Aula Virtual y tus apuntes.
-  Tiene un índice con el resumen de cada uno.
-- Cuando necesita detalles (una fórmula, un enunciado, un ejemplo), **abre el
-  documento concreto** y lo lee. Verás «📖 Leyendo …» en la conversación.
-- Te dice de qué archivo sale cada cosa. Si algo no está en tus materiales, te
-  avisa de que lo explica con conocimiento general.
-- La ventana muestra el **coste de la conversación**. Preguntar sobre una sola
-  asignatura es más barato que sobre todas. «Nueva conversación» empieza de cero.
-
-Funciona mejor con los resúmenes activados, porque el índice es más rico. Sin
-ellos, el asistente solo ve los nombres de los archivos y tiene que abrirlos.
-
-## Bandeja de apuntes
-
-1. Pulsa **"📂 Abrir bandeja de apuntes"**. Se abre la carpeta
-   `UJI\_Bandeja de apuntes`, que también está en Google Drive si lo usas, así
-   que puedes subir fotos desde el móvil.
-2. Deja ahí tus apuntes: PDF, Word, PowerPoint, texto o **fotos de apuntes a
-   mano** (JPG, PNG).
-3. Pulsa **"🗂 Organizar mis apuntes"**. Para cada archivo, Claude:
-   - decide la **asignatura y el tema**, eligiendo solo entre las carpetas que
-     ya existen, así que no se inventa ninguna;
-   - le pone un **nombre descriptivo** (por ejemplo, `IMG_2031.jpg` pasa a ser
-     `Límites laterales.jpg`);
-   - lo mueve a `Asignatura\Mis apuntes\Tema\`.
-
-Si no tiene claro dónde va un archivo, lo deja en la bandeja y te lo dice. Nunca
-sobrescribe otro apunte. Clasificar un apunte cuesta muy poco (céntimos). Las
-fotos HEIC del iPhone no se admiten: expórtalas como JPG.
+Con **"Preparar para Claude Pro"** (activado por defecto), cada sincronización
+actualiza `_Para Claude/` con un índice de materiales, las novedades y una guía.
+En la app de Claude, conecta Google Drive (Ajustes → Conectores), crea un
+Proyecto «UJI» con las instrucciones de la guía y pregunta ahí. Si Claude no
+puede abrir algún archivo desde Drive, adjúntalo en el chat.
 
 ## Desde el móvil
 
-La sincronización con el Aula Virtual se hace siempre en el PC, porque necesita
-el navegador donde inicias sesión. Desde el móvil puedes usar todo lo demás:
+En ⚙️ Configuración, activa **"Permitir el acceso desde el móvil"**. Verás una
+dirección (p. ej. `http://192.168.1.35:8766`) y un **PIN**. Ábrela en el móvil,
+conectado a la misma wifi, y añádela a la pantalla de inicio.
 
-1. En el PC, pulsa **"📱 Móvil"**. Verás una dirección (p. ej.
-   `http://192.168.1.35:8765`) y un **PIN de 6 cifras**.
-2. Con el móvil **en la misma wifi**, abre esa dirección en el navegador y
-   escribe el PIN.
-3. Para usarla como una app, pulsa en el navegador *"Añadir a pantalla de inicio"*.
-
-Tendrás tres pestañas:
-
-- **💬 Asistente**: el mismo chat que en el PC, sobre una asignatura o todas.
-- **📝 Apuntes**: haz una foto de tus apuntes (o elige archivos), súbela a la
-  bandeja y pulsa **"Organizar mis apuntes"**.
-- **🆕 Novedades**: lo último que ha llegado a cada asignatura y de qué trata.
-
-Seguridad:
-
-- Hace falta el PIN. Tras 5 intentos fallidos se bloquea un minuto.
-- La web solo ofrece esas funciones: no permite navegar por tus archivos.
-- La conexión es HTTP sin cifrar dentro de tu red. **Úsala en tu wifi de casa,
-  no en redes públicas** (universidad, cafeterías…). Si Windows pregunta por el
-  firewall, permite el acceso **solo en redes privadas**.
-- Solo funciona con el PC encendido y UJI Sync abierto. Para apagarla, vuelve a
-  pulsar "📱 Móvil" o cierra UJI Sync.
-
-Sin la web también tienes en el móvil, a través de la app de Google Drive, tus
-materiales, los resúmenes y la bandeja.
+- En el móvil tienes la misma aplicación: biblioteca (con la cámara para subir
+  fotos), búsqueda, asistente y novedades.
+- Sincronizar y cambiar ajustes solo se puede hacer desde el PC.
+- Seguridad:
+  - Hace falta el PIN, y tras 5 intentos fallidos se bloquea un minuto.
+  - Solo se sirven archivos de la biblioteca.
+  - La conexión es HTTP sin cifrar: úsala **solo en tu wifi de casa**.
+  - Si Windows pregunta por el firewall, permite únicamente «Redes privadas».
 
 ## Diagnóstico
 
-Si algo no funciona, ejecuta el diagnóstico. No descarga nada: dice si detecta
-Google Drive, comprueba el login, lista tus cursos y muestra cómo se lee un curso.
+Si la sincronización no funciona con tu cuenta, ejecuta el diagnóstico (no
+descarga nada) y revisa lo que muestra:
 
 ```powershell
-.venv\Scripts\python -m uji_sync --diagnostico            # primer curso
-.venv\Scripts\python -m uji_sync --diagnostico --curso 1234
+.venv\Scripts\python -m uji_sync --diagnostico
 ```
-
-## Privacidad y seguridad
-
-- La contraseña solo se escribe en la página oficial de la UJI; UJI Sync no la lee.
-- La sesión queda en un perfil de navegador propio en
-  `%LOCALAPPDATA%\UJISync\browser-profile`, así que puede que no tengas que
-  volver a entrar cada vez. **Para cerrar la sesión, borra esa carpeta.**
-- Las preferencias (carpeta de destino, asignaturas marcadas) están en
-  `%LOCALAPPDATA%\UJISync\config.json`, y el registro de descargas en
-  `%LOCALAPPDATA%\UJISync\registros\`.
-- Las peticiones se hacen de una en una y con una pausa, para no cargar el servidor.
-- La clave de la API de Claude (si usas los resúmenes) se guarda en el
-  Administrador de credenciales de Windows.
-- Usa los materiales solo para ti: no los redistribuyas.
-
-## Qué hace y qué no hace
-
-| Elemento de Moodle | Qué hace UJI Sync |
-|---|---|
-| Archivo (recurso) | Lo descarga |
-| Carpeta | Descarga sus archivos conservando subcarpetas |
-| URL | Crea un acceso directo `.url` |
-| Archivos enlazados en etiquetas o en la descripción de un tema | Los descarga |
-| Recursos sin permiso de descarga | Los cuenta como "no disponibles"; nunca intenta saltarse el permiso |
-| Foros, tareas, cuestionarios, H5P, SCORM, vídeos incrustados | No los descarga (previsto para fases futuras) |
-
-**Efecto secundario a saber:** para obtener el archivo de un recurso, UJI Sync abre
-su enlace igual que si hicieras clic tú, así que Moodle lo registra como **visto**
-(finalización de actividad, registros). Es lo mismo que hace la app oficial.
-
-**Duplicados:** Moodle cambia la URL de un archivo (número de revisión) cuando el
-profesorado lo sustituye. Si la URL no ha cambiado y el archivo sigue en tu disco,
-no se vuelve a descargar. Si cambia, se descarga y se compara el contenido
-(SHA-256): si es distinto, se actualiza y la versión antigua va a
-`_versiones_anteriores/`. Si borras un archivo, se vuelve a descargar. Si ya hay
-en la carpeta un archivo idéntico que no está en el registro, se reutiliza.
 
 ## Estructura del código
 
 ```
 uji_sync/
-  config.py    rutas, preferencias y detección de Google Drive (nunca credenciales)
-  moodle.py    navegador + login manual + lectura de cursos/secciones/recursos
-  sync.py      descarga, organización, duplicados y resumen
-  registry.py  registro SQLite (archivos, ejecuciones y resúmenes)
-  ai.py        resúmenes con Claude (extracción, petición, .md, novedades)
-  assistant.py asistente de estudio (índice de materiales + herramienta leer_material)
-  inbox.py     bandeja de apuntes (clasificar, renombrar y mover)
-  library.py   asignaturas, temas y materiales que hay en la carpeta UJI
-  mobile.py    web para el móvil (servidor con PIN) y mobile_page.html
-  claude_pro.py índice y novedades para la app de Claude (modo Pro, sin API)
-  apikey.py    clave de API en el almacén seguro del sistema
-  fsutils.py   nombres válidos en Windows, URLs pluginfile.php
-  ui.py        interfaz tkinter
-  cli.py       entrada: interfaz o --diagnostico
-tests/         pruebas con un Moodle simulado (no es el Aula Virtual real)
+  webapp.py      servidor web (Flask) y API; seguridad (PIN, solo-PC, cabeceras)
+  web/           interfaz: index.html, app.js, style.css (sin dependencias externas)
+  jobs.py        tareas en segundo plano (el navegador siempre en el mismo hilo)
+  moodle.py      navegador + login manual + lectura de cursos y recursos
+  sync.py        descarga, organización, duplicados y resumen
+  library.py     carpetas, biblioteca (etiquetas, filtros, subidas, edición)
+  registry.py    registro SQLite (archivos, resúmenes, biblioteca, profesores)
+  ai.py          llamadas a Claude y resúmenes
+  assistant.py   preguntas sobre tus materiales
+  inbox.py       bandeja: clasificar con IA
+  claude_pro.py  índice para la app de Claude (sin API)
+  config.py, apikey.py, fsutils.py, cli.py
+tests/           pruebas con un Moodle simulado y un Claude simulado (sin coste)
 ```
 
 Pruebas: `pip install -r requirements-dev.txt` y luego `python -m pytest`.
-
-## Preparado para el futuro (resto de la Fase 4)
-
-Cada función futura encaja en una pieza existente, sin reescribir nada:
-
-| Función | Dónde encaja |
-|---|---|
-| Tareas y fechas de entrega, calendario | Nuevo método en `MoodleBrowser` con una función AJAX de Moodle (*se verificará antes de usarla*) + tabla nueva en `registry.py` |
-| Anuncios nuevos | Leer el foro "Avisos" (`modtype_forum`, ya detectado en `get_course_sections`) |
-| Novedades desde la última sincronización | Tablas `runs` y `files` (`first_seen`, `last_changed`) ya guardan el historial |
-| Buscador en todos los materiales | Índice SQLite FTS5 con el texto y los resúmenes (tabla `summaries`, que ya guarda conceptos y puntos clave) |
