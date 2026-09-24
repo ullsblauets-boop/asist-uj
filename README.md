@@ -15,6 +15,7 @@ de tus asignaturas del **Aula Virtual de la UJI** (Moodle).
 - **Asistente de estudio**: un chat al que preguntar sobre tus materiales.
 - **Bandeja de apuntes**: dejas tus propios apuntes (incluso fotos de apuntes a
   mano) y la IA los coloca en su asignatura y tema.
+- **Desde el móvil**: asistente, subir fotos de apuntes y novedades, en tu wifi.
 
 ```
 UJI/
@@ -189,6 +190,37 @@ Si no tiene claro dónde va un archivo, lo deja en la bandeja y te lo dice. Nunc
 sobrescribe otro apunte. Clasificar un apunte cuesta muy poco (céntimos). Las
 fotos HEIC del iPhone no se admiten: expórtalas como JPG.
 
+## Desde el móvil
+
+La sincronización con el Aula Virtual se hace siempre en el PC, porque necesita
+el navegador donde inicias sesión. Desde el móvil puedes usar todo lo demás:
+
+1. En el PC, pulsa **"📱 Móvil"**. Verás una dirección (p. ej.
+   `http://192.168.1.35:8765`) y un **PIN de 6 cifras**.
+2. Con el móvil **en la misma wifi**, abre esa dirección en el navegador y
+   escribe el PIN.
+3. Para usarla como una app, pulsa en el navegador *"Añadir a pantalla de inicio"*.
+
+Tendrás tres pestañas:
+
+- **💬 Asistente**: el mismo chat que en el PC, sobre una asignatura o todas.
+- **📝 Apuntes**: haz una foto de tus apuntes (o elige archivos), súbela a la
+  bandeja y pulsa **"Organizar mis apuntes"**.
+- **🆕 Novedades**: lo último que ha llegado a cada asignatura y de qué trata.
+
+Seguridad:
+
+- Hace falta el PIN. Tras 5 intentos fallidos se bloquea un minuto.
+- La web solo ofrece esas funciones: no permite navegar por tus archivos.
+- La conexión es HTTP sin cifrar dentro de tu red. **Úsala en tu wifi de casa,
+  no en redes públicas** (universidad, cafeterías…). Si Windows pregunta por el
+  firewall, permite el acceso **solo en redes privadas**.
+- Solo funciona con el PC encendido y UJI Sync abierto. Para apagarla, vuelve a
+  pulsar "📱 Móvil" o cierra UJI Sync.
+
+Sin la web también tienes en el móvil, a través de la app de Google Drive, tus
+materiales, los resúmenes y la bandeja.
+
 ## Diagnóstico
 
 Si algo no funciona, ejecuta el diagnóstico. No descarga nada: dice si detecta
@@ -247,6 +279,7 @@ uji_sync/
   assistant.py asistente de estudio (índice de materiales + herramienta leer_material)
   inbox.py     bandeja de apuntes (clasificar, renombrar y mover)
   library.py   asignaturas, temas y materiales que hay en la carpeta UJI
+  mobile.py    web para el móvil (servidor con PIN) y mobile_page.html
   apikey.py    clave de API en el almacén seguro del sistema
   fsutils.py   nombres válidos en Windows, URLs pluginfile.php
   ui.py        interfaz tkinter

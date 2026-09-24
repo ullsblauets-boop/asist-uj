@@ -20,6 +20,7 @@ from .ai import DEFAULT_MODEL, MODELS, AIError, AIFatalError, AIProcessor, needs
 from .assistant import Assistant
 from .inbox import InboxOrganizer, inbox_dir, inbox_files
 from .library import list_courses
+from .mobile import MobileServer, new_pin
 from .apikey import get_api_key, has_credentials, set_api_key, delete_api_key
 from .config import BASE_URL, Settings, browser_profile_dir, find_google_drive, registry_path
 from .moodle import Course, LoginCancelled, MoodleBrowser
@@ -159,6 +160,8 @@ class App:
             side="left", padx=4)
         self.inbox_btn = ttk.Button(extra, text="🗂 Organizar mis apuntes", command=self.start_inbox)
         self.inbox_btn.pack(side="left")
+        ttk.Button(extra, text="📱 Móvil", command=self.toggle_mobile).pack(side="left", padx=4)
+        self.mobile: MobileServer | None = None
 
         self.log_box = scrolledtext.ScrolledText(self.root, height=12, state="disabled")
         self.log_box.pack(fill="both", expand=True, **pad)
@@ -327,6 +330,39 @@ class App:
         self.status_var.set("Organizando tus apuntes…")
         self.worker.submit(self._task_inbox, dest, self._model_id())
 
+    def toggle_mobile(self) -> None:
+        if self.mobile:
+            if messagebox.askyesno("UJI Sync", f"La web para el móvil está activa en\n\n"
+                                   f"{self.mobile.url}\nPIN: {self.mobile.pin}\n\n¿Desactivarla?"):
+                self.mobile.stop()
+                self.mobile = None
+                self.status_var.set("Web para el móvil desactivada.")
+            return
+        if not list_courses(self._dest()):
+            messagebox.showinfo("UJI Sync", "Primero sincroniza el Aula Virtual para tener materiales.")
+            return
+        if not self._ensure_ai_ready():
+            return
+        if not self.settings.mobile_pin:
+            self.settings.mobile_pin = new_pin()
+            self.settings.save()
+        try:
+            self.mobile = MobileServer(self._dest(), self.settings.mobile_pin, self._model_id()).start()
+        except OSError as e:
+            messagebox.showerror("UJI Sync", f"No se pudo activar la web para el móvil: {e}")
+            return
+        self.status_var.set(f"📱 Web para el móvil: {self.mobile.url} · PIN {self.mobile.pin}")
+        messagebox.showinfo(
+            "UJI Sync",
+            "Web para el móvil activada.\n\n"
+            f"1. Conecta el móvil a la misma wifi que este PC.\n"
+            f"2. Abre en el navegador del móvil:\n    {self.mobile.url}\n"
+            f"3. Escribe el PIN:  {self.mobile.pin}\n\n"
+            "Consejo: añádela a la pantalla de inicio para abrirla como una app.\n\n"
+            "Si Windows pregunta por el firewall, permite el acceso solo en redes "
+            "privadas. No la actives en redes públicas.",
+        )
+
     # ------------------------------------------------------------ acciones
     def start_login(self) -> None:
         self._set_busy(True)
@@ -362,6 +398,8 @@ class App:
     def on_close(self) -> None:
         if self.course_vars:
             self._save_settings()
+        if self.mobile:
+            self.mobile.stop()
         self.worker.shutdown()
         self.root.destroy()
 
