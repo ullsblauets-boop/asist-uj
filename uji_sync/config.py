@@ -28,7 +28,7 @@ def browser_profile_dir() -> Path:
 
 
 def default_dest_dir() -> Path:
-    return Path.home() / "UJI"
+    return Path.home() / "UJI Study"
 
 
 def registry_path(dest_dir: Path) -> Path:

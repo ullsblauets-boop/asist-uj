@@ -1,3 +1,3 @@
-"""UJI Sync: organiza los materiales del Aula Virtual de la UJI (Moodle)."""
+"""UJI Study Assistant: Aula Virtual de la UJI + biblioteca de apuntes + asistente de estudio."""
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"

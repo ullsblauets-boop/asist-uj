@@ -64,6 +64,22 @@ CREATE TABLE IF NOT EXISTS notes (
     en_una_frase  TEXT NOT NULL,
     created       TEXT NOT NULL
 );
+-- Biblioteca: etiquetas de cada archivo (del Aula Virtual o propio).
+CREATE TABLE IF NOT EXISTS library (
+    path        TEXT PRIMARY KEY,    -- relativa a la carpeta de destino
+    course      TEXT NOT NULL,
+    tema        TEXT NOT NULL,
+    tipo        TEXT NOT NULL,
+    profesor    TEXT NOT NULL,
+    source      TEXT NOT NULL,       -- aula | propio
+    titulo      TEXT NOT NULL,
+    descripcion TEXT NOT NULL,
+    added       TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS course_meta (
+    course   TEXT PRIMARY KEY,
+    profesor TEXT NOT NULL
+);
 """
 
 
@@ -164,6 +180,37 @@ class Registry:
     def notes(self) -> dict[str, dict]:
         rows = self.conn.execute("SELECT * FROM notes").fetchall()
         return {r["local_path"]: dict(r) for r in rows}
+
+    # ---------------------------------------------------------- biblioteca
+    def library_items(self) -> dict[str, dict]:
+        rows = self.conn.execute("SELECT * FROM library").fetchall()
+        return {r["path"]: dict(r) for r in rows}
+
+    def save_library_item(self, item: dict) -> None:
+        self.conn.execute(
+            """INSERT OR REPLACE INTO library VALUES (:path, :course, :tema, :tipo, :profesor,
+                   :source, :titulo, :descripcion, :added)""",
+            item,
+        )
+        self.conn.commit()
+
+    def delete_library_item(self, path: str) -> None:
+        self.conn.execute("DELETE FROM library WHERE path = ?", (path,))
+        self.conn.commit()
+
+    def course_profesores(self) -> dict[str, str]:
+        rows = self.conn.execute("SELECT course, profesor FROM course_meta").fetchall()
+        return {r["course"]: r["profesor"] for r in rows}
+
+    def set_course_profesor(self, course: str, profesor: str) -> None:
+        self.conn.execute("INSERT OR REPLACE INTO course_meta VALUES (?, ?)", (course, profesor))
+        self.conn.commit()
+
+    def last_run(self) -> str | None:
+        row = self.conn.execute(
+            "SELECT finished FROM runs WHERE dry_run = 0 AND finished IS NOT NULL "
+            "ORDER BY id DESC LIMIT 1").fetchone()
+        return row["finished"] if row else None
 
     def start_run(self, dry_run: bool) -> int:
         cur = self.conn.execute(

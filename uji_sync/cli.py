@@ -51,15 +51,17 @@ def diagnose(include_past: bool, course_id: int | None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="uji_sync", description="UJI Sync")
+    parser = argparse.ArgumentParser(prog="uji_sync", description="UJI Study Assistant")
     parser.add_argument("--diagnostico", action="store_true",
-                        help="comprobar el acceso sin descargar nada")
+                        help="comprobar el acceso al Aula Virtual sin descargar nada")
     parser.add_argument("--curso", type=int, help="id del curso a analizar en el diagnóstico")
     parser.add_argument("--pasados", action="store_true", help="incluir cursos pasados")
+    parser.add_argument("--sin-navegador", action="store_true",
+                        help="no abrir el navegador automáticamente")
     args = parser.parse_args(argv)
     if args.diagnostico:
         return diagnose(args.pasados, args.curso)
-    from .ui import run
+    from .webapp import run
 
-    run()
+    run(open_browser=not args.sin_navegador)
     return 0

@@ -80,7 +80,8 @@ def test_inbox_organizes_notes(uji):
             "cosas.txt": (UNSORTED, "Lista"),
             "datos.xlsx": (f"Matemáticas / {GENERAL}", "Datos de prácticas"),
         }[name]
-        data = {"destino": dest[0], "titulo": dest[1], "en_una_frase": f"Sobre {dest[1]}"}
+        data = {"destino": dest[0], "tipo": "Apuntes", "titulo": dest[1],
+                "en_una_frase": f"Sobre {dest[1]}"}
         return SimpleNamespace(stop_reason="end_turn", model=kw["model"], usage=USAGE,
                                content=[text_block(json.dumps(data))])
 
@@ -105,6 +106,8 @@ def test_inbox_organizes_notes(uji):
     assert reg.notes()["Matemáticas/Mis apuntes/01 - Tema 1_ Límites/Límites laterales.jpg"][
         "en_una_frase"] == "Sobre Límites laterales"
     assert "✓ IMG_2031.jpg →" in res.text() and "? cosas.txt" in res.text()
+    lib = reg.library_items()["Matemáticas/Mis apuntes/01 - Tema 1_ Límites/Límites laterales.jpg"]
+    assert (lib["tipo"], lib["tema"], lib["source"]) == ("Apuntes", "01 - Tema 1_ Límites", "propio")
 
 
 def test_inbox_stops_on_fatal_error(uji):

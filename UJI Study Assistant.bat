@@ -1,5 +1,5 @@
 @echo off
-rem Lanza UJI Sync con el entorno virtual del proyecto
+rem Lanza UJI Study Assistant (se abre en el navegador)
 cd /d "%~dp0"
 if not exist .venv\Scripts\python.exe (
   echo Primero instala: py -m venv .venv ^&^& .venv\Scripts\pip install -r requirements.txt

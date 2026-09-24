@@ -1,4 +1,5 @@
 playwright>=1.40
+flask>=3.0
 # Resúmenes con IA
 anthropic>=1.8
 python-docx>=1.1
