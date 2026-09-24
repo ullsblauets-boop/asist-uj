@@ -74,7 +74,7 @@ class App:
         self.busy = False
 
         root.title("UJI Sync")
-        root.geometry("720x720")
+        root.geometry("720x760")
         root.minsize(520, 480)
         self._build()
         root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -138,19 +138,22 @@ class App:
 
         ai = ttk.LabelFrame(self.root, text="Resúmenes con IA (Claude)")
         ai.pack(fill="x", **pad)
+        ai_row1, ai_row2 = ttk.Frame(ai), ttk.Frame(ai)  # dos filas: caben en ventanas estrechas
+        ai_row1.pack(fill="x")
+        ai_row2.pack(fill="x", pady=(4, 0))
         self.ai_var = tk.BooleanVar(value=self.settings.ai_enabled)
         ttk.Checkbutton(
-            ai, text="Resumir con IA los archivos nuevos", variable=self.ai_var,
+            ai_row1, text="Resumir con IA los archivos nuevos", variable=self.ai_var,
             command=self.toggle_ai,
         ).pack(side="left")
         self.model_var = tk.StringVar(
             value=MODELS.get(self.settings.ai_model, MODELS[DEFAULT_MODEL]))
         ttk.Combobox(
-            ai, textvariable=self.model_var, values=list(MODELS.values()),
+            ai_row1, textvariable=self.model_var, values=list(MODELS.values()),
             state="readonly", width=30,
         ).pack(side="left", padx=6)
-        ttk.Button(ai, text="Clave de API…", command=self.configure_key).pack(side="left")
-        self.pending_btn = ttk.Button(ai, text="Resumir pendientes", command=self.start_pending)
+        ttk.Button(ai_row2, text="Clave de API…", command=self.configure_key).pack(side="left")
+        self.pending_btn = ttk.Button(ai_row2, text="Resumir pendientes", command=self.start_pending)
         self.pending_btn.pack(side="left", padx=4)
 
         extra = ttk.LabelFrame(self.root, text="Asistente y apuntes")
@@ -535,7 +538,7 @@ class AssistantWindow:
         top.pack(fill="x", padx=10, pady=6)
         ttk.Label(top, text="Sobre:").pack(side="left")
         self.scope_var = tk.StringVar(value=self.ALL)
-        scope = ttk.Combobox(top, textvariable=self.scope_var, state="readonly", width=40,
+        scope = ttk.Combobox(top, textvariable=self.scope_var, state="readonly", width=30,
                              values=[self.ALL] + list_courses(root_dir))
         scope.pack(side="left", padx=6)
         scope.bind("<<ComboboxSelected>>", lambda e: self.new_conversation())
@@ -550,11 +553,12 @@ class AssistantWindow:
 
         bottom = ttk.Frame(self.win)
         bottom.pack(fill="x", padx=10, pady=8)
+        # El botón se coloca primero para que el cuadro de texto no lo tape.
+        self.send_btn = ttk.Button(bottom, text="Enviar", command=self.send)
+        self.send_btn.pack(side="right", padx=(6, 0))
         self.entry = tk.Text(bottom, height=3, wrap="word")
         self.entry.pack(side="left", fill="x", expand=True)
         self.entry.bind("<Return>", self._on_enter)
-        self.send_btn = ttk.Button(bottom, text="Enviar", command=self.send)
-        self.send_btn.pack(side="left", padx=(6, 0))
         self.new_conversation()
         self.entry.focus_set()
         self.win.after(100, self._poll)
@@ -631,7 +635,7 @@ class AssistantWindow:
         else:
             self._write("Asistente\n", "who")
             self._write(answer + "\n\n")
-        self.cost_var.set(f"Coste de la conversación: {assistant.cost:.2f} US$".replace(".", ","))
+        self.cost_var.set(f"Coste: {assistant.cost:.2f} US$".replace(".", ","))
 
 
 def run() -> None:
