@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import argparse
 
-from .config import BASE_URL, browser_profile_dir
+from .config import BASE_URL, browser_profile_dir, find_google_drive
 
 
 def diagnose(include_past: bool, course_id: int | None) -> int:
     """Comprueba login, lista de cursos y lectura de un curso. No descarga nada."""
     from .moodle import MoodleBrowser, MoodleError
 
+    drive = find_google_drive()
+    print(f"Google Drive: {drive if drive else 'no detectado'}")
     browser = MoodleBrowser(BASE_URL, browser_profile_dir())
     browser.start()
     try:

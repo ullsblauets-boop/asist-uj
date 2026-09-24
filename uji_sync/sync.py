@@ -4,17 +4,27 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
+from .config import registry_path
 from .fsutils import folder_subpath, is_pluginfile, pluginfile_filename, pluginfile_key, safe_name
 from .moodle import Course, MoodleBrowser, MoodleError, Section
 from .registry import FileRecord, Registry, now
 
 OLD_VERSIONS_DIR = "_versiones_anteriores"
-DB_NAME = ".uji-sync.db"
+LEGACY_DB_NAME = ".uji-sync.db"  # v0.1 guardaba el registro dentro de la carpeta UJI
+
+
+def file_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 @dataclass
@@ -60,7 +70,12 @@ class Syncer:
         self.dry_run = dry_run
         self.log = log
         self.should_stop = should_stop
-        self.registry = Registry(dest_root / DB_NAME)
+        db_path = registry_path(dest_root)
+        legacy = dest_root / LEGACY_DB_NAME
+        if legacy.exists() and not db_path.exists():
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(legacy), str(db_path))
+        self.registry = Registry(db_path)
 
     def close(self) -> None:
         self.registry.close()
@@ -151,59 +166,64 @@ class Syncer:
             res.skipped.append(filename)
             self.log(f"  – {filename}: no disponible (HTTP {dl.status})")
             return
-        sha = hashlib.sha256(dl.body).hexdigest()
-
-        if exists and rec.sha256 == sha:
-            self.registry.touch(key, url)
-            res.unchanged += 1
-            return
-
-        if exists:
-            local = rec.local_path
-            self._archive_old(course, local)
-            res.updated.append(filename)
-            self.log(f"  ↻ {local}")
-        else:
-            local = rec.local_path if rec else self._free_path(target_dir / filename, key)
-            res.new.append(filename)
-            self.log(f"  + {local}")
-        self._write(local, dl.body)
-        ts = now()
-        self.registry.upsert(FileRecord(
-            key=key, kind="file", course_id=course.id, course_name=course.fullname,
-            section=sec.name, name=filename, url=url, local_path=local, sha256=sha,
-            size=len(dl.body), first_seen=rec.first_seen if rec else ts, last_seen=ts,
-            last_changed=ts,
-        ))
+        self._store(course, sec, key, "file", filename, url, dl.body,
+                    target_dir / filename, rec, exists, res)
 
     def _sync_link(self, course, sec, sec_dir, item, target: str, res) -> None:
         """Guarda un enlace como acceso directo de Windows (.url)."""
         key = f"url:{course.id}:{item.cmid}"
+        name = safe_name(item.name) + ".url"
         content = f"[InternetShortcut]\r\nURL={target}\r\n".encode("utf-8")
-        sha = hashlib.sha256(content).hexdigest()
         rec = self.registry.get(key)
         exists = rec is not None and (self.root / rec.local_path).exists()
-        if exists and rec.sha256 == sha:
+        if exists and rec.sha256 == hashlib.sha256(content).hexdigest():
             if not self.dry_run:
                 self.registry.touch(key, target)
             res.unchanged += 1
             return
-        name = safe_name(item.name) + ".url"
         if self.dry_run:
             (res.updated if exists else res.new).append(name)
             self.log(f"  {'↻' if exists else '+'} {sec_dir / name}")
             return
-        local = rec.local_path if rec else self._free_path(sec_dir / name, key)
-        (res.updated if exists else res.new).append(name)
-        self.log(f"  {'↻' if exists else '+'} {local}")
-        self._write(local, content)
+        self._store(course, sec, key, "link", name, target, content, sec_dir / name, rec, exists, res)
+
+    def _store(self, course, sec, key, kind, name, url, data: bytes,
+               wanted: PurePosixPath, rec, exists: bool, res) -> None:
+        """Escribe el contenido descargado y lo apunta en el registro."""
+        sha = hashlib.sha256(data).hexdigest()
+        if exists and rec.sha256 == sha:
+            self.registry.touch(key, url)
+            res.unchanged += 1
+            return
+        if exists:
+            local = rec.local_path
+            if kind == "file":
+                self._archive_old(local)
+            res.updated.append(name)
+            self.log(f"  ↻ {local}")
+            self._write(local, data)
+        elif rec is None and self._is_unregistered_copy(str(wanted), sha):
+            # Ya estaba en la carpeta (p. ej. en Google Drive, sincronizado desde
+            # otro PC): se registra sin duplicarlo.
+            local = str(wanted)
+            res.unchanged += 1
+        else:
+            local = rec.local_path if rec else self._free_path(wanted, key)
+            res.new.append(name)
+            self.log(f"  + {local}")
+            self._write(local, data)
         ts = now()
         self.registry.upsert(FileRecord(
-            key=key, kind="link", course_id=course.id, course_name=course.fullname,
-            section=sec.name, name=name, url=target, local_path=local, sha256=sha,
-            size=len(content), first_seen=rec.first_seen if rec else ts, last_seen=ts,
+            key=key, kind=kind, course_id=course.id, course_name=course.fullname,
+            section=sec.name, name=name, url=url, local_path=local, sha256=sha,
+            size=len(data), first_seen=rec.first_seen if rec else ts, last_seen=ts,
             last_changed=ts,
         ))
+
+    def _is_unregistered_copy(self, local: str, sha: str) -> bool:
+        path = self.root / local
+        return (self.registry.owner_of_path(local) is None and path.is_file()
+                and file_sha256(path) == sha)
 
     # ------------------------------------------------------------------
     def _free_path(self, wanted: PurePosixPath, key: str) -> str:
@@ -218,7 +238,7 @@ class Syncer:
             n += 1
             candidate = wanted.with_name(f"{stem} ({n}){suffix}")
 
-    def _archive_old(self, course: Course, local: str) -> None:
+    def _archive_old(self, local: str) -> None:
         src = self.root / local
         p = PurePosixPath(local)
         dst_rel = (PurePosixPath(p.parts[0]) / OLD_VERSIONS_DIR

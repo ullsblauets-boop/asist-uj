@@ -4,6 +4,7 @@ import os
 
 import pytest
 
+from uji_sync.config import registry_path
 from uji_sync.moodle import MoodleBrowser
 from uji_sync.sync import Syncer, format_summary
 
@@ -13,7 +14,8 @@ pytest.importorskip("playwright")
 
 
 @pytest.fixture()
-def env(tmp_path):
+def env(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
     fake = FakeMoodle().start()
     browser = MoodleBrowser(fake.base_url, tmp_path / "profile", channel=None,
                             headless=True, delay=0)
@@ -57,6 +59,7 @@ def test_full_flow(env):
 
     # Primera sincronización
     r = run(browser, dest)
+    assert registry_path(dest).exists() and not (dest / ".uji-sync.db").exists()
     assert files_in(dest) == [
         "Matemáticas/00 - General/Web de la asignatura.url",
         "Matemáticas/01 - Tema 1_ Introducción/Horario.pdf",
@@ -91,3 +94,22 @@ def test_full_flow(env):
     tema.unlink()
     r = run(browser, dest)
     assert r.new == ["Tema 1.pdf"] and tema.exists()
+
+    # Otro PC con la misma carpeta de Google Drive (registro local vacío):
+    # los archivos idénticos se reconocen, no se duplican.
+    registry_path(dest).unlink()
+    before = files_in(dest)
+    r = run(browser, dest)
+    assert (len(r.new), len(r.updated), r.unchanged) == (0, 0, 6)
+    assert files_in(dest) == before
+
+
+def test_legacy_registry_is_moved_out_of_destination(env):
+    _, browser, dest = env
+    run(browser, dest)
+    db = registry_path(dest)
+    dest_legacy = dest / ".uji-sync.db"
+    db.rename(dest_legacy)  # simula el registro de la v0.1 dentro de la carpeta UJI
+    r = run(browser, dest)
+    assert not dest_legacy.exists() and db.exists()
+    assert (len(r.new), r.unchanged) == (0, 6)

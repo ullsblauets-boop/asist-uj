@@ -13,7 +13,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
-from .config import BASE_URL, Settings, browser_profile_dir
+from .config import BASE_URL, Settings, browser_profile_dir, find_google_drive
 from .moodle import Course, LoginCancelled, MoodleBrowser
 from .sync import Syncer, format_summary
 
@@ -62,7 +62,7 @@ class App:
         self.busy = False
 
         root.title("UJI Sync")
-        root.geometry("640x620")
+        root.geometry("720x620")
         root.minsize(520, 480)
         self._build()
         root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -77,6 +77,8 @@ class App:
         self.dest_var = tk.StringVar(value=self.settings.dest_dir)
         ttk.Entry(top, textvariable=self.dest_var).pack(side="left", fill="x", expand=True, padx=6)
         ttk.Button(top, text="Cambiar…", command=self.choose_dest).pack(side="left")
+        ttk.Button(top, text="Usar Google Drive", command=self.use_google_drive).pack(
+            side="left", padx=(4, 0))
 
         login = ttk.Frame(self.root)
         login.pack(fill="x", **pad)
@@ -133,6 +135,21 @@ class App:
         path = filedialog.askdirectory(initialdir=self.dest_var.get() or str(Path.home()))
         if path:
             self.dest_var.set(path)
+
+    def use_google_drive(self) -> None:
+        drive = find_google_drive()
+        if drive is None:
+            messagebox.showinfo(
+                "UJI Sync",
+                "No encuentro Google Drive en este PC.\n\n"
+                "Instala «Google Drive para ordenadores» "
+                "(https://www.google.com/drive/download/), inicia sesión con tu cuenta "
+                "de Google y vuelve a pulsar este botón.\n\n"
+                "También puedes elegir la carpeta a mano con «Cambiar…».",
+            )
+            return
+        self.dest_var.set(str(drive / "UJI"))
+        self.status_var.set(f"Los materiales se guardarán en Google Drive: {drive / 'UJI'}")
 
     def log(self, text: str) -> None:
         self.log_box.configure(state="normal")

@@ -86,7 +86,8 @@ Descartado: `core_course_get_contents` por AJAX. **No** tiene `ajax => true`
 
 ## 6. Duplicados y registro (diseño para la Fase 2)
 
-- Registro local en **SQLite** (`UJI/.uji-sync.db`) con: curso, sección, id del
+- Registro local en **SQLite** (`%LOCALAPPDATA%\UJISync\registros\`, fuera de la
+  carpeta de destino para que Google Drive no la sincronice) con: curso, sección, id del
   módulo, URL, ruta local, tamaño, `Last-Modified`/`ETag`, **SHA-256** y fecha.
 - Un archivo se considera **sin cambios** si coinciden la URL y el hash o las
   cabeceras. Si cambia, se guarda la versión nueva y la antigua se conserva con sufijo.

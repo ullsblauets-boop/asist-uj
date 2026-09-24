@@ -9,6 +9,7 @@ de tus asignaturas del **Aula Virtual de la UJI** (Moodle).
 - Descarga PDF, PowerPoint, Word, Excel, imágenes y otros archivos, y guarda los
   enlaces como accesos directos `.url`.
 - Organiza por asignatura y por sección/tema, y no duplica lo ya descargado.
+- Puede guardar todo directamente en **Google Drive**.
 
 ```
 UJI/
@@ -19,8 +20,7 @@ UJI/
 │   │   ├── Tema 1.pdf
 │   │   └── Prácticas/          ← Carpeta de Moodle, con sus subcarpetas
 │   └── _versiones_anteriores/  ← copias antiguas si el profesor sustituye un archivo
-├── Física/
-└── .uji-sync.db                ← registro de lo descargado
+└── Física/
 ```
 
 La investigación previa (tecnología, API, autenticación, límites) está en
@@ -60,10 +60,37 @@ Haz doble clic en **`UJI Sync.bat`** (o `.venv\Scripts\python -m uji_sync`).
 Consejo: la primera vez marca **"Solo analizar (no descargar)"** para ver qué
 se descargaría sin escribir nada en disco.
 
+## Guardar en Google Drive
+
+1. Instala **Google Drive para ordenadores**
+   (<https://www.google.com/drive/download/>) e inicia sesión con tu cuenta de Google.
+   Drive aparecerá en el Explorador de Windows, normalmente como `G:\Mi unidad`.
+2. En UJI Sync pulsa **"Usar Google Drive"**: la carpeta de destino pasa a ser
+   `G:\Mi unidad\UJI`.
+3. Sincroniza como siempre. Google Drive sube los archivos solo, con la misma
+   organización por asignatura y tema, y los verás en <https://drive.google.com>
+   y en el móvil.
+
+Detalles:
+
+- UJI Sync no necesita permisos sobre tu cuenta de Google: solo escribe en una
+  carpeta de tu PC, y la app oficial de Google se encarga de subirla.
+- El **registro** de descargas se guarda en tu PC
+  (`%LOCALAPPDATA%\UJISync\registros\`), no en Drive, para evitar que Drive
+  bloquee o duplique la base de datos mientras se usa.
+- Si usas UJI Sync en **otro PC** con el mismo Drive, los archivos que ya estén
+  en Drive y sean idénticos se reconocen y no se duplican.
+- Si Drive no se detecta (por ejemplo, porque lo tienes en otra letra o en otro
+  idioma), elige la carpeta a mano con **"Cambiar…"**.
+
+Alternativa descartada: subir con la API de Google Drive. Obligaría a crear un
+proyecto en Google Cloud y a guardar en el PC un token con acceso a tu Drive, y
+sería mucho más código para el mismo resultado.
+
 ### Diagnóstico
 
-Si algo no funciona, ejecuta el diagnóstico. No descarga nada: comprueba el login,
-lista tus cursos y muestra cómo se lee un curso.
+Si algo no funciona, ejecuta el diagnóstico. No descarga nada: dice si detecta
+Google Drive, comprueba el login, lista tus cursos y muestra cómo se lee un curso.
 
 ```powershell
 .venv\Scripts\python -m uji_sync --diagnostico            # primer curso
@@ -77,7 +104,8 @@ lista tus cursos y muestra cómo se lee un curso.
   `%LOCALAPPDATA%\UJISync\browser-profile`, así que puede que no tengas que
   volver a entrar cada vez. **Para cerrar la sesión, borra esa carpeta.**
 - Las preferencias (carpeta de destino, asignaturas marcadas) están en
-  `%LOCALAPPDATA%\UJISync\config.json`.
+  `%LOCALAPPDATA%\UJISync\config.json`, y el registro de descargas en
+  `%LOCALAPPDATA%\UJISync\registros\`.
 - Las peticiones se hacen de una en una y con una pausa, para no cargar el servidor.
 - Usa los materiales solo para ti: no los redistribuyas.
 
@@ -100,13 +128,14 @@ su enlace igual que si hicieras clic tú, así que Moodle lo registra como **vis
 profesorado lo sustituye. Si la URL no ha cambiado y el archivo sigue en tu disco,
 no se vuelve a descargar. Si cambia, se descarga y se compara el contenido
 (SHA-256): si es distinto, se actualiza y la versión antigua va a
-`_versiones_anteriores/`. Si borras un archivo, se vuelve a descargar.
+`_versiones_anteriores/`. Si borras un archivo, se vuelve a descargar. Si ya hay
+en la carpeta un archivo idéntico que no está en el registro, se reutiliza.
 
 ## Estructura del código
 
 ```
 uji_sync/
-  config.py    rutas y preferencias (nunca credenciales)
+  config.py    rutas, preferencias y detección de Google Drive (nunca credenciales)
   moodle.py    navegador + login manual + lectura de cursos/secciones/recursos
   sync.py      descarga, organización, duplicados y resumen
   registry.py  registro SQLite (archivos y ejecuciones)

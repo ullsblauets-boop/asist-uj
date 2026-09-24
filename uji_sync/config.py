@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import string
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+from .fsutils import safe_name
 
 BASE_URL = "https://aulavirtual.uji.es"
 
@@ -25,6 +29,43 @@ def browser_profile_dir() -> Path:
 
 def default_dest_dir() -> Path:
     return Path.home() / "UJI"
+
+
+def registry_path(dest_dir: Path) -> Path:
+    """Registro SQLite de una carpeta de destino, guardado en este PC.
+
+    No se guarda dentro de la carpeta de destino para que Google Drive (u otro
+    servicio de sincronización) no suba ni bloquee la base de datos mientras se usa.
+    """
+    key = str(Path(dest_dir).expanduser().resolve()).lower()  # Windows no distingue mayúsculas
+    digest = hashlib.sha1(key.encode("utf-8")).hexdigest()[:10]
+    name = safe_name(Path(dest_dir).name or "destino", max_len=40)
+    return app_dir() / "registros" / f"{name}-{digest}.db"
+
+
+# Nombre de la carpeta raíz de Google Drive para ordenadores según el idioma.
+DRIVE_ROOT_NAMES = ("Mi unidad", "My Drive", "La meva unitat")
+
+
+def find_google_drive(candidates: list[Path] | None = None) -> Path | None:
+    """Carpeta "Mi unidad" de Google Drive para ordenadores, si está instalado.
+
+    En modo streaming aparece como una unidad (normalmente G:\\Mi unidad); en modo
+    duplicación, dentro de la carpeta del usuario.
+    """
+    if candidates is None:
+        candidates = []
+        if os.name == "nt":
+            candidates += [Path(f"{letter}:\\") for letter in string.ascii_uppercase[2:]]
+        candidates.append(Path.home())
+    for base in candidates:
+        for name in DRIVE_ROOT_NAMES:
+            try:
+                if (base / name).is_dir():
+                    return base / name
+            except OSError:
+                continue
+    return None
 
 
 @dataclass
