@@ -17,8 +17,8 @@ Funciona en el navegador del PC y, opcionalmente, en el móvil dentro de tu wifi
 | 2 | Sincronización del Aula Virtual | ✅ (pendiente de probar con tu cuenta) |
 | 3 | Biblioteca de documentos con etiquetas | ✅ |
 | 4 | Búsqueda dentro del contenido de los documentos | ✅ |
-| 5 | Resolver ejercicio con fotos | ⏳ siguiente |
-| 6 | Modo «Como mis apuntes / profesor» | ⏳ |
+| 5 | Resolver ejercicio con fotos | ✅ |
+| 6 | Modo «Como mis apuntes / profesor» | ⏳ siguiente |
 | 7 | Tareas, entregas y calendario | ⏳ |
 
 ## Instalación en Windows
@@ -47,7 +47,7 @@ servidor: déjala abierta) y la aplicación en tu navegador, en
 | 📚 **Mis asignaturas** | Asignaturas con sus temas y materiales por tipo. Aquí indicas el **profesor** de cada una. |
 | 📥 **Sincronizar Aula Virtual** | 1) Se abre Edge y **tú** inicias sesión. 2) Marcas las asignaturas. 3) Sincronizas. Puedes solo analizar primero. |
 | 📖 **Biblioteca de apuntes** | Todo tu material con filtros (asignatura, tema, tipo, origen, texto). Subes fotos, capturas y PDF, y editas las etiquetas. |
-| 📷 **Resolver ejercicio** | Próximamente (Fase 5). |
+| 📷 **Resolver ejercicio** | Sube la foto de un ejercicio: se lee, se busca el método en tus apuntes y se resuelve explicado (requiere IA). |
 | 🔎 **Buscar en mis apuntes** | Busca **dentro del contenido** de tus documentos (con página y fragmento). Con la IA activada, puedes **preguntar** a tus materiales. |
 | 📅 **Tareas y entregas** | Próximamente (Fase 7). |
 | ⚙️ **Configuración** | Carpeta (o Google Drive), IA, modo Claude Pro y acceso desde el móvil. |
@@ -92,6 +92,42 @@ corregidos · Exámenes · Prácticas · Pizarra · Otros.
 - Los archivos del Aula Virtual no se mueven nunca: solo cambian sus etiquetas.
 - Las etiquetas se guardan en el registro local
   (`%LOCALAPPDATA%\UJISync\registros\`) y se conservan entre sincronizaciones.
+
+## Resolver ejercicio
+
+1. Sube una **foto** o un PDF del ejercicio (en el móvil, con la cámara) o
+   escribe el enunciado.
+2. Deja **Asignatura** y **Tema** en «Automático» o elígelos tú.
+3. Elige el **modo**:
+   - **Resultado**: solo la solución.
+   - **Explicación corta**: datos, fórmula y resultado.
+   - **Paso a paso**: datos → qué se pide → fórmula o procedimiento → por qué se
+     usa → sustitución → operaciones → resultado con unidades.
+   - «Como mis apuntes» y «Modo profesor» llegan en la Fase 6.
+4. Pulsa **RESOLVER**.
+
+Qué hace:
+
+- **Lee** el enunciado, los datos y lo que se pide. Si la foto no se entiende, lo
+  dice y no gasta más.
+- **Busca en tus materiales** ejercicios parecidos (Ejercicios, Problemas,
+  Exámenes, Ejercicios corregidos) y la teoría del método. Si hace falta, abre el
+  documento completo.
+- **Indica siempre de dónde sale el método**:
+  - «Método de tus apuntes: Tema 3.pdf, pág. 12», si lo ha encontrado;
+  - si no, exactamente: *«No encuentro en tus materiales un procedimiento
+    específico para este tipo de ejercicio. Te lo voy a resolver utilizando un
+    método estándar.»*
+- Copia las fórmulas de tus apuntes tal cual y **señala en «Avisos» los posibles
+  errores** que vea en ellos, sin corregirlos en silencio.
+- Cada resolución se guarda (con la foto) en `Asignatura/_resoluciones_IA/`. Esa
+  carpeta **nunca se usa como fuente**, para no confundir una resolución de la IA
+  con el método de tu profesor.
+
+Coste orientativo: entre 0,05 y 0,30 US$ por ejercicio con Opus, que se muestra
+en cada resolución. La IA puede equivocarse, sobre todo en cálculos largos:
+revisa las operaciones. Es para estudiar y practicar, no para usar en
+evaluaciones.
 
 ## Búsqueda en tus documentos
 
@@ -140,7 +176,7 @@ de la suscripción Claude Pro**. Sin activar la IA, todo lo demás funciona grat
 | Resúmenes automáticos de los materiales | Sí |
 | Preguntar a tus materiales | Sí |
 | Subir con asignatura «Automático» / organizar la bandeja | Sí |
-| Resolver ejercicio (Fase 5) | Sí |
+| Resolver ejercicio | Sí |
 
 Para activarla, en ⚙️ Configuración:
 
@@ -202,6 +238,7 @@ uji_sync/
   inbox.py       bandeja: clasificar con IA
   claude_pro.py  índice para la app de Claude (sin API)
   search.py      búsqueda: extracción de texto, índice por palabras (FTS5), significado, OCR
+  solver.py      resolver ejercicio: leer la foto, buscar el método, resolver, historial
   config.py, apikey.py, fsutils.py, cli.py
 tests/           pruebas con un Moodle simulado y un Claude simulado (sin coste)
 ```

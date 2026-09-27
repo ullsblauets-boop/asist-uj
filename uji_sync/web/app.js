@@ -34,6 +34,8 @@ function md(text) {
     if (list && kind !== list) { html += `</${list}>`; list = null; }
     if (kind) { if (!list) { html += `<${kind}>`; list = kind; } html += `<li>${inline((ul || ol)[1])}</li>`; }
     else if (/^#{1,4} /.test(line)) html += `<h4>${inline(line.replace(/^#+ /, ""))}</h4>`;
+    else if (/^&gt; ?/.test(line)) html += `<blockquote>${inline(line.replace(/^&gt; ?/, ""))}</blockquote>`;
+    else if (/^-{3,}$/.test(line)) html += "<hr>";
     else if (line) html += `<p>${inline(line)}</p>`;
   }
   return html + (list ? `</${list}>` : "");
@@ -274,19 +276,86 @@ const pages = {
   },
 
   async resolver() {
+    if (!status.ai.ready) {
+      view().innerHTML = `<h2>📷 Resolver ejercicio</h2>${aiNeeded()}
+        <div class="card soon"><p>Sube la foto de un ejercicio: se lee el enunciado, se buscan en tus apuntes el método
+        y ejercicios parecidos, y se resuelve explicando datos, fórmula, por qué se usa, sustitución, operaciones y resultado.</p></div>`;
+      return;
+    }
+    const { courses } = await api("/api/courses");
+    const hist = await api("/api/solve/history");
+    const byName = Object.fromEntries(courses.map((c) => [c.name, c]));
     view().innerHTML = `
       <h2>📷 Resolver ejercicio</h2>
-      <p class="lead">Próximamente (Fase 5).</p>
-      <div class="card soon">
-        <p>Podrás subir la foto de un ejercicio y la aplicación:</p>
-        <ol><li>leerá el enunciado,</li><li>identificará la asignatura y el tema,</li>
-          <li>buscará en tus apuntes ejercicios parecidos y el método de tu profesor,</li>
-          <li>y lo resolverá explicando datos, fórmula, por qué se usa, sustitución, operaciones, resultado y unidades.</li></ol>
-        <p class="muted">Modos previstos: Resultado · Explicación corta · Paso a paso · Como mis apuntes · Modo profesor.
-          Si tus materiales no muestran un método concreto, lo dirá y usará uno estándar.</p>
+      <p class="lead">Sube una foto (o escribe el enunciado). Se busca el método en tus apuntes antes de resolver.</p>
+      <div class="card">
+        <label class="btn secondary" style="justify-content:center">📷 Subir foto o PDF
+          <input type="file" id="s-file" class="hidden" accept="image/*,.pdf"></label>
+        <span class="muted" id="s-fname">Ningún archivo</span>
+        <img id="s-preview" class="hidden" alt="" style="display:block;max-width:100%;max-height:260px;margin:10px 0;border-radius:10px">
+        <textarea id="s-text" rows="3" style="margin-top:10px" placeholder="…o escribe o pega aquí el enunciado (también sirve para añadir aclaraciones a la foto)"></textarea>
+        <div class="grid" style="margin-top:10px">
+          <label class="field">Asignatura <select id="s-course">${opt("auto", "Automático")}${courses.map((c) => opt(c.name)).join("")}</select></label>
+          <label class="field">Tema <select id="s-tema"></select></label>
+        </div>
+        <div class="field" style="margin-top:10px">Modo
+          ${hist.modes.map(([k, v]) => `<label class="check"><input type="radio" name="mode" value="${k}"
+            ${k === "pasos" ? "checked" : ""} ${hist.available.includes(k) ? "" : "disabled"}> ${esc(v)}
+            ${hist.available.includes(k) ? "" : '<span class="muted">(Fase 6)</span>'}</label>`).join("")}
+        </div>
+        <button class="btn" id="s-go" style="margin-top:10px">🧮 RESOLVER</button>
       </div>
-      <p class="muted">Mientras tanto, ve subiendo a la <a href="#biblioteca?subir=1">biblioteca</a> tus ejercicios resueltos y apuntes:
-        cuanto más material haya, mejor podrá seguir el método de tus clases.</p>`;
+      <div id="s-progress"></div>
+      <div class="card hidden" id="s-result"></div>
+      <div class="card"><h3>Resoluciones anteriores</h3>
+        ${hist.items.length ? `<ul class="list">${hist.items.map((h) => `<li><a href="#" class="s-old" data-path="${esc(h.path)}">${esc(h.title)}</a>
+          <div class="muted">${esc(h.course || "Sin asignatura")} · ${esc(h.date)}</div></li>`).join("")}</ul>`
+          : '<p class="muted">Aún no has resuelto ningún ejercicio.</p>'}
+        <p class="muted">Se guardan en «_resoluciones_IA» de cada asignatura y nunca se usan como fuente del método.</p>
+      </div>`;
+    const sc = $("#s-course"), st = $("#s-tema");
+    const fill = () => {
+      st.innerHTML = opt("auto", "Automático") + (byName[sc.value]?.temas || []).map((t) => opt(t)).join("");
+      st.disabled = sc.value === "auto";
+    };
+    sc.onchange = fill; fill();
+    $("#s-file").onchange = (e) => {
+      const f = e.target.files[0];
+      $("#s-fname").textContent = f ? f.name : "Ningún archivo";
+      const img = $("#s-preview");
+      if (f && f.type.startsWith("image/")) { img.src = URL.createObjectURL(f); img.classList.remove("hidden"); }
+      else img.classList.add("hidden");
+    };
+    const show = (markdown, extra = "") => {
+      const box = $("#s-result");
+      box.classList.remove("hidden");
+      box.innerHTML = `<div class="msg bot" style="max-width:100%;border:0;padding:0">${md(markdown)}</div>${extra}`;
+      box.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    $("#s-go").onclick = async () => {
+      const file = $("#s-file").files[0], text = $("#s-text").value.trim();
+      if (!file && !text) { toast("Sube una foto o escribe el enunciado."); return; }
+      const form = new FormData();
+      if (file) form.append("file", file);
+      form.append("text", text); form.append("course", sc.value); form.append("tema", st.value);
+      form.append("mode", view().querySelector("input[name=mode]:checked").value);
+      $("#s-go").disabled = true; $("#s-result").classList.add("hidden");
+      $("#s-progress").innerHTML = `<div class="card"><b>⏳ Resolviendo…</b>
+        <p class="muted">Leyendo el ejercicio, buscando el método en tus apuntes y resolviendo. Puede tardar un minuto.</p></div>`;
+      const r = await api("/api/solve", { method: "POST", form });
+      $("#s-go").disabled = false; $("#s-progress").innerHTML = "";
+      if (r.error) { show("⚠️ " + r.error); return; }
+      const steps = r.steps?.length ? `<details style="margin-top:10px"><summary class="muted">Qué ha hecho</summary>
+        <pre class="log">${esc(r.steps.join("\n"))}</pre></details>` : "";
+      show(r.markdown, `${steps}<p class="muted">Coste: ${r.cost.toFixed(2).replace(".", ",")} US$${r.saved ? " · Guardado en " + esc(r.saved) : ""}</p>`);
+    };
+    for (const a of view().querySelectorAll(".s-old")) {
+      a.onclick = async (e) => {
+        e.preventDefault();
+        const resp = await fetch("/api/solve/file?path=" + encodeURIComponent(a.dataset.path), { credentials: "same-origin" });
+        show(resp.ok ? await resp.text() : "No se pudo abrir.");
+      };
+    }
   },
 
   async buscar() {

@@ -113,7 +113,8 @@ def _index_line(reg, rel, sha_by_path, notes, detailed) -> str:
 class Assistant:
     def __init__(self, root: Path, course: str | None = None, client=None,
                  model: str = DEFAULT_MODEL,
-                 searcher: Callable[[str, list[str]], list[dict]] | None = None):
+                 searcher: Callable[[str, list[str]], list[dict]] | None = None,
+                 instructions: str | None = None):
         self.root = root
         self.searcher = searcher  # (consulta, asignaturas) -> resultados de search.py
         self.courses = [course] if course else list_courses(root)
@@ -130,7 +131,7 @@ class Assistant:
                           "elige una asignatura concreta")
         self.system = [{
             "type": "text",
-            "text": SYSTEM_PROMPT.format(scope=scope, notes=NOTES_DIR)
+            "text": (instructions or SYSTEM_PROMPT).format(scope=scope, notes=NOTES_DIR)
                     + "\n\n# Índice de materiales\n" + (index or "\n(no hay materiales todavía)"),
             # El índice no cambia durante la conversación: se guarda en la caché.
             "cache_control": {"type": "ephemeral"},
@@ -142,10 +143,15 @@ class Assistant:
             self._client = make_client()
         return self._client
 
-    def ask(self, question: str, on_read=lambda ruta: None) -> str:
-        """Envía una pregunta y devuelve la respuesta (lee documentos si hace falta)."""
+    def ask(self, question: str | list, on_read=lambda ruta: None,
+            output_format: dict | None = None, effort: str = "medium") -> str:
+        """Envía una pregunta (texto o bloques, p. ej. con una foto) y devuelve la respuesta.
+        Con output_format, la respuesta final es un JSON que cumple ese esquema."""
         start = len(self.messages)
         self.messages.append({"role": "user", "content": question})
+        output_config = {"effort": effort}
+        if output_format:
+            output_config["format"] = {"type": "json_schema", "schema": output_format}
         try:
             for _ in range(MAX_STEPS):
                 resp = create_message(
@@ -154,7 +160,7 @@ class Assistant:
                     system=self.system,
                     tools=[SEARCH_TOOL, READ_TOOL] if self.searcher else [READ_TOOL],
                     thinking={"type": "adaptive"},
-                    output_config={"effort": "medium"},
+                    output_config=output_config,
                     cache_control={"type": "ephemeral"},  # caché también para la conversación
                     messages=self.messages,
                 )
@@ -189,7 +195,8 @@ class Assistant:
             if not hits:
                 return {**result, "content": "Sin resultados en los materiales indexados."}
             text = "\n\n".join(
-                f"[{i}] {h['path']}{' (' + h['loc'] + ')' if h['loc'] else ''}\n{h['text']}"
+                f"[{i}] {h['path']}{' (' + h['loc'] + ')' if h['loc'] else ''}"
+                f"{' [tipo: ' + h['tipo'] + ']' if h.get('tipo') else ''}\n{h['text']}"
                 for i, h in enumerate(hits, 1))
             return {**result, "content": text}
         if block.name != READ_TOOL["name"]:

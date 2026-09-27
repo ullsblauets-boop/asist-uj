@@ -28,6 +28,22 @@ class FakeAssistant:
         return f"**Según tus apuntes** ({self.course}) <b>x</b>"
 
 
+class FakeSolver:
+    calls = []
+
+    def __init__(self, root, model):
+        self.root = root
+
+    def solve(self, image, text, course, tema, mode, progress=None):
+        from uji_sync.solver import Solution
+        FakeSolver.calls.append((image.name if image else None, text, course, tema, mode,
+                                 image.exists() if image else None))
+        return Solution(True, "> **Método de tus apuntes:** Tema 3.pdf, pág. 12\n\n## Resolución\n\n"
+                        "**h'(x) = 2x·cos(x²)** <script>x</script>", course=course or "Cálculo I",
+                        metodo_origen="apuntes", cost=0.12, steps=["📷 Leyendo el ejercicio…"],
+                        saved="Cálculo I/_resoluciones_IA/2026-09-27 1200 - Derivada.md")
+
+
 class FakeOrganizer:
     def __init__(self, root, reg, model, log):
         self.root = root
@@ -57,7 +73,7 @@ def state(tmp_path, monkeypatch):
             return ("Apuntes de la pizarra sobre el hormigón armado", 0.01)
         return ocr
     st = AppState(s, assistant_factory=FakeAssistant, organizer_factory=FakeOrganizer,
-                  embedder=FakeEmbedder(), ocr_factory=ocr_factory)
+                  embedder=FakeEmbedder(), ocr_factory=ocr_factory, solver_factory=FakeSolver)
     st.ocr_calls = ocr_calls
     yield st
     st.jobs.shutdown()
@@ -243,7 +259,18 @@ def test_interface_in_browser(state, viewport, tmp_path):
             go("configuracion")
             page.wait_for_selector("text=Carpeta de la biblioteca")
             go("resolver")
-            page.wait_for_selector("text=Próximamente (Fase 5)")
+            page.wait_for_selector("text=RESOLVER")
+            assert page.locator("input[name=mode][value=profesor]").is_disabled()  # Fase 6
+            assert page.eval_on_selector_all("input[name=mode]", "els => els.map(e => e.value)") == [
+                "resultado", "corta", "pasos", "apuntes", "profesor"]
+            page.set_input_files("#s-file", files=[{"name": "ej.jpg", "mimeType": "image/jpeg", "buffer": b"x"}])
+            page.select_option("#s-course", "Cálculo I")
+            page.check("input[name=mode][value=corta]")
+            page.click("#s-go")
+            res = page.wait_for_selector("#s-result blockquote")
+            assert "Método de tus apuntes" in res.inner_text()
+            assert "&lt;script&gt;" in page.inner_html("#s-result")
+            assert "0,12 US$" in page.inner_text("#s-result")
             page.wait_for_selector("#sidebar:not(.open)", state="attached")
             page.wait_for_timeout(400)  # fin de la animación del menú
             assert page.evaluate(f"document.documentElement.scrollWidth <= {viewport[0]}")
@@ -293,3 +320,37 @@ def test_search_api(client, state):
     assert state.ocr_calls == ["pizarra.jpg"] and "1 fotos o escaneados leídos" in job["result"]
     hits = client.get("/api/search?q=hormigón").get_json()["results"]
     assert {h["titulo"] for h in hits} >= {"pizarra"}
+
+
+def test_solve_api(client, state, tmp_path):
+    FakeSolver.calls.clear()
+    data = {"file": (io.BytesIO(b"foto"), "ej.jpg"), "course": "Cálculo I", "tema": "03 - Tema 3", "mode": "pasos"}
+    r = client.post("/api/solve", data=data, headers=H, content_type="multipart/form-data").get_json()
+    assert r["ok"] and r["metodo_origen"] == "apuntes"
+    name, text, course, tema, mode, existed = FakeSolver.calls[0]
+    assert name.endswith("ej.jpg") and existed and (course, tema, mode) == ("Cálculo I", "03 - Tema 3", "pasos")
+    assert not any((Path(os.environ["LOCALAPPDATA"]) / "UJISync" / "tmp").iterdir())  # foto temporal borrada
+
+    r = client.post("/api/solve", data={"text": "Deriva sen(x²)", "course": "auto", "tema": "auto", "mode": "corta"},
+                    headers=H, content_type="multipart/form-data").get_json()
+    assert FakeSolver.calls[-1][:5] == (None, "Deriva sen(x²)", None, None, "corta")
+    bad = [{"text": "x", "mode": "profesor"}, {"text": "x", "course": "No existe"},
+           {"text": "x", "course": "Cálculo I", "tema": "../.."}, {"mode": "pasos"}]
+    for d in bad:
+        assert client.post("/api/solve", data=d, headers=H, content_type="multipart/form-data").status_code == 400, d
+
+    # Desde el móvil también (con PIN)
+    assert client.post("/api/solve", data={"text": "x"}, headers=H, environ_base=REMOTE,
+                       content_type="multipart/form-data").status_code == 401
+
+    # Historial: solo se sirven archivos de las carpetas de resoluciones
+    root = Path(state.settings.dest_dir)
+    sol_dir = root / "Cálculo I" / "_resoluciones_IA"
+    sol_dir.mkdir()
+    (sol_dir / "2026-09-27 1200 - Derivada.md").write_text("# Resolución", encoding="utf-8")
+    items = client.get("/api/solve/history").get_json()["items"]
+    assert items[0] == {"path": "Cálculo I/_resoluciones_IA/2026-09-27 1200 - Derivada.md",
+                        "course": "Cálculo I", "date": "2026-09-27 1200", "title": "Derivada"}
+    assert client.get("/api/solve/file?path=" + items[0]["path"]).data.decode() == "# Resolución"
+    assert client.get("/api/solve/file?path=Cálculo I/03 - Tema 3/Tema 3.pdf").status_code == 404
+    assert client.get("/api/solve/file?path=Cálculo I/_resoluciones_IA/../../../secreto.txt").status_code == 404

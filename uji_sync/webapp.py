@@ -41,6 +41,7 @@ from .library import (
 )
 from .registry import Registry
 from .search import LocalEmbedder, SearchIndex, claude_ocr
+from .solver import AVAILABLE_MODES, MODES, SOLUTIONS_DIR, ExerciseSolver, history
 from .sync import Syncer, format_summary
 
 PORT = 8765
@@ -72,8 +73,11 @@ def new_pin() -> str:
 
 class AppState:
     def __init__(self, settings: Settings, browser_factory=None, assistant_factory=None,
-                 organizer_factory=None, processor_factory=None, embedder=None, ocr_factory=None):
+                 organizer_factory=None, processor_factory=None, embedder=None, ocr_factory=None,
+                 solver_factory=None):
         self.settings = settings
+        self.solver_factory = solver_factory or (
+            lambda root, model: ExerciseSolver(root, self.search_for_assistant, model=model))
         self.embedder = embedder if embedder is not None else LocalEmbedder()
         self.ocr_factory = ocr_factory or (lambda model: claude_ocr(make_client(), model))
         self.jobs = JobManager()
@@ -128,7 +132,17 @@ class AppState:
             hits = idx.search(query, limit=12)
         finally:
             idx.close()
-        return [h for h in hits if h["path"].split("/", 1)[0] in courses][:8]
+        reg = self.registry()
+        try:
+            tags = reg.library_items()
+        finally:
+            reg.close()
+        out = []
+        for h in hits:
+            if h["path"].split("/", 1)[0] in courses:
+                tag = tags.get(h["path"], {})
+                out.append({**h, "tipo": tag.get("tipo", ""), "source": tag.get("source", "")})
+        return out[:8]
 
     def check_pin(self, pin: str) -> str | None:
         with self.lock:
@@ -489,6 +503,57 @@ def create_app(state: AppState) -> Flask:
             return jsonify({"error": str(e), "conversation": conversation})
         return jsonify({"conversation": conversation, "answer": answer, "reads": reads,
                         "cost": round(assistant.cost, 4)})
+
+    # ------------------------------------------------------------ resolver ejercicio
+    @app.post("/api/solve")
+    def solve():
+        require_ai()
+        f = request.form
+        mode = f.get("mode", "pasos")
+        if mode not in AVAILABLE_MODES:
+            return err("Ese modo llegará en la Fase 6.")
+        course = None if f.get("course", "auto") == "auto" else f.get("course")
+        tema = None if f.get("tema", "auto") in ("auto", "") else f.get("tema")
+        if course and course not in list_courses(state.root):
+            return err("Asignatura desconocida")
+        if tema and (not course or tema not in list_sections(state.root, course)):
+            return err("Tema desconocido")
+        text = f.get("text", "").strip()[:8000]
+        upload = request.files.get("file")
+        if not text and not upload:
+            return err("Sube una foto o escribe el enunciado.")
+        tmp = None
+        try:
+            if upload:
+                from .config import app_dir
+                from .fsutils import safe_name
+                tmp_dir = app_dir() / "tmp"
+                tmp_dir.mkdir(parents=True, exist_ok=True)
+                tmp = tmp_dir / f"{secrets.token_hex(8)}-{safe_name(Path(upload.filename or 'foto.jpg').name)}"
+                upload.save(tmp)
+            solver = state.solver_factory(state.root, state.settings.ai_model)
+            sol = solver.solve(tmp, text, course, tema, mode)
+        except (AIError, AIFatalError) as e:
+            return jsonify({"error": str(e)})
+        finally:
+            if tmp is not None:
+                tmp.unlink(missing_ok=True)
+        return jsonify(sol.as_dict())
+
+    @app.get("/api/solve/history")
+    def solve_history():
+        # Lista de pares para conservar el orden (Resultado → Modo profesor)
+        return jsonify({"items": history(state.root), "modes": [[k, v] for k, v in MODES.items()],
+                        "available": list(AVAILABLE_MODES)})
+
+    @app.get("/api/solve/file")
+    def solve_file():
+        rel = PurePosixPath(request.args.get("path", ""))
+        path = (state.root / rel).resolve()
+        if (SOLUTIONS_DIR not in rel.parts or ".." in rel.parts or not path.is_file()
+                or state.root.resolve() not in path.parents):
+            abort(404)
+        return send_file(path, mimetype="text/plain; charset=utf-8")
 
     # ------------------------------------------------------------ sincronizar (solo PC)
     @app.post("/api/sync/login")
