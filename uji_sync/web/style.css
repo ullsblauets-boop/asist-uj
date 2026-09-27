@@ -93,3 +93,15 @@ code { background: var(--bg); padding: 1px 4px; border-radius: 4px; }
 mark { background: var(--accent-soft); color: inherit; padding: 0 2px; border-radius: 3px; font-weight: 600; }
 blockquote { margin: 6px 0; padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 8px 8px 0; }
 hr { border: 0; border-top: 1px solid var(--line); margin: 12px 0; }
+
+/* ---- calendario ---- */
+.cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin-top: 8px; }
+.cal-head { text-align: center; font-size: 12px; color: var(--muted); font-weight: 600; }
+.cal-cell { min-height: 64px; border: 1px solid var(--line); border-radius: 8px; padding: 3px; overflow: hidden; }
+.cal-cell.empty { border: 0; }
+.cal-cell.today { border-color: var(--accent); }
+.cal-day { font-size: 12px; color: var(--muted); }
+.cal-ev { font-size: 11px; background: var(--accent-soft); color: var(--accent); border-radius: 4px; padding: 1px 3px;
+  margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal-ev.done { opacity: .5; text-decoration: line-through; }
+@media (max-width: 800px) { .cal-cell { min-height: 44px; } .cal-ev { font-size: 9px; } }

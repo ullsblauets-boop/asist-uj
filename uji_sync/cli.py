@@ -45,6 +45,25 @@ def diagnose(include_past: bool, course_id: int | None) -> int:
         if first:
             url = browser.resolve_resource(first.cmid)
             print(f"\n{'✓' if url else '✗'} Archivo de '{first.name}': {url or 'no encontrado'}")
+
+        from .sync import find_announcements_forum
+
+        forum = find_announcements_forum(sections)
+        if forum:
+            news = browser.get_forum_discussions(forum.cmid)
+            print(f"\n{'✓' if news else '?'} Foro de avisos «{forum.name}»: {len(news)} avisos")
+            for n in news[:5]:
+                print(f"   - {n['title']} ({n['date'] or 'sin fecha'})")
+        else:
+            print("\n? No encuentro un foro de avisos en este curso")
+
+        try:
+            events = browser.get_action_events()
+            print(f"\n✓ Tareas con fecha: {len(events)}")
+            for e in events[:5]:
+                print(f"   - {e['course']}: {e['name']} ({e['action'] or e['modulename']})")
+        except MoodleError as e:
+            print(f"\n✗ No se pudieron leer las tareas: {e}")
         return 0
     finally:
         browser.close()

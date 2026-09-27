@@ -42,6 +42,7 @@ from .library import (
 from .registry import Registry
 from .search import LocalEmbedder, SearchIndex, claude_ocr
 from .solver import AVAILABLE_MODES, MODES, SOLUTIONS_DIR, ExerciseSolver, history
+from .tasks import group_events, to_ics
 from .sync import Syncer, format_summary
 
 PORT = 8765
@@ -77,7 +78,9 @@ class AppState:
                  solver_factory=None):
         self.settings = settings
         self.solver_factory = solver_factory or (
-            lambda root, model: ExerciseSolver(root, self.search_for_assistant, model=model))
+            lambda root, model: ExerciseSolver(root, self.search_for_assistant, model=model,
+                                               style_provider=self.style_for))
+        self.style_builder = None  # (root, course, registry, model) -> perfil; se puede sustituir en pruebas
         self.embedder = embedder if embedder is not None else LocalEmbedder()
         self.ocr_factory = ocr_factory or (lambda model: claude_ocr(make_client(), model))
         self.jobs = JobManager()
@@ -125,6 +128,24 @@ class AppState:
             return idx.update(log=log, ocr=ocr_fn, should_stop=self.jobs.stop.is_set)
         finally:
             idx.close()
+
+    def style_for(self, course: str) -> dict | None:
+        """Perfil de estilo de la asignatura; se crea (con IA) la primera vez."""
+        reg = self.registry()
+        try:
+            profile = reg.get_style(course)
+            if profile is None:
+                profile = self.build_style(course, reg)
+            return profile
+        finally:
+            reg.close()
+
+    def build_style(self, course: str, reg) -> dict:
+        from .style import build_profile
+
+        if self.style_builder:
+            return self.style_builder(self.root, course, reg, self.settings.ai_model)
+        return build_profile(self.root, course, reg, make_client(), self.settings.ai_model)
 
     def search_for_assistant(self, query: str, courses: list[str]) -> list[dict]:
         idx = self.search_index()
@@ -266,8 +287,16 @@ def create_app(state: AppState) -> Flask:
         counts: dict[str, int] = {}
         for it in items.values():
             counts[it["course"]] = counts.get(it["course"], 0) + 1
+        reg = state.registry()
+        try:
+            groups = group_events(reg.events())
+            news = reg.announcements(limit=5)
+        finally:
+            reg.close()
         return jsonify({"last_sync": last, "recent": recent_items(items)[:30],
-                        "counts": counts, "inbox": len(inbox_files(state.root))})
+                        "counts": counts, "inbox": len(inbox_files(state.root)),
+                        "upcoming": groups["upcoming"][:5], "overdue": len(groups["overdue"]),
+                        "announcements": news})
 
     @app.get("/api/job")
     def job():
@@ -280,6 +309,11 @@ def create_app(state: AppState) -> Flask:
         try:
             items = sync_library(state.root, reg)
             profes = reg.course_profesores()
+            styles = {}
+            for c in list_courses(state.root):
+                p = reg.get_style(c)
+                styles[c] = ({"suficiente": p.get("suficiente"), "creado": p.get("creado", ""),
+                              "documentos": len(p.get("fuentes", []))} if p else None)
         finally:
             reg.close()
         out = []
@@ -290,7 +324,7 @@ def create_app(state: AppState) -> Flask:
                     by_tipo[it["tipo"]] = by_tipo.get(it["tipo"], 0) + 1
             out.append({"name": c, "temas": list_sections(state.root, c),
                         "profesor": profes.get(c, ""), "by_tipo": by_tipo,
-                        "total": sum(by_tipo.values())})
+                        "total": sum(by_tipo.values()), "style": styles.get(c)})
         return jsonify({"courses": out})
 
     @app.post("/api/courses/profesor")
@@ -504,6 +538,72 @@ def create_app(state: AppState) -> Flask:
         return jsonify({"conversation": conversation, "answer": answer, "reads": reads,
                         "cost": round(assistant.cost, 4)})
 
+    # ------------------------------------------------------------ tareas y avisos (Fase 7)
+    @app.get("/api/tasks")
+    def tasks():
+        reg = state.registry()
+        try:
+            events, news = reg.events(), reg.announcements()
+        finally:
+            reg.close()
+        return jsonify({**group_events(events), "announcements": news})
+
+    @app.post("/api/tasks/done")
+    def tasks_done():
+        data = request.get_json(force=True)
+        reg = state.registry()
+        try:
+            reg.set_event_done(int(data.get("id", 0)), bool(data.get("done")))
+        finally:
+            reg.close()
+        return jsonify({"ok": True})
+
+    @app.get("/api/tasks/calendar.ics")
+    def tasks_ics():
+        reg = state.registry()
+        try:
+            events = reg.events()
+        finally:
+            reg.close()
+        resp = app.response_class(to_ics(events), mimetype="text/calendar")
+        resp.headers["Content-Disposition"] = 'attachment; filename="UJI-entregas.ics"'
+        return resp
+
+    # ------------------------------------------------------------ estilo (Fase 6)
+    @app.get("/api/style")
+    def style_get():
+        course = request.args.get("course", "")
+        reg = state.registry()
+        try:
+            return jsonify({"profile": reg.get_style(course)})
+        finally:
+            reg.close()
+
+    @app.post("/api/style/build")
+    def style_build():
+        require_ai()
+        course = (request.get_json(force=True) or {}).get("course")
+        if course not in list_courses(state.root):
+            return err("Asignatura desconocida")
+
+        def run(job):
+            job.log.append("🔎 Actualizando el índice para analizar los materiales…")
+            state.index_update(job.log.append)
+            reg = state.registry()
+            try:
+                sync_library(state.root, reg)
+                job.log.append(f"🎨 Analizando el estilo de «{course}»…")
+                p = state.build_style(course, reg)
+            finally:
+                reg.close()
+            return (f"Perfil de estilo de «{course}» creado a partir de {len(p.get('fuentes', []))} documentos. "
+                    + ("Hay material suficiente para los modos «Como mis apuntes» y «Modo profesor»."
+                       if p.get("suficiente") else f"Material insuficiente: {p.get('motivo', '')}"))
+        try:
+            return jsonify({"job": state.jobs.submit("style", f"Analizar estilo de {course}", run).as_dict()})
+        except Busy as e:
+            return err(str(e), 409)
+
     # ------------------------------------------------------------ resolver ejercicio
     @app.post("/api/solve")
     def solve():
@@ -578,6 +678,34 @@ def create_app(state: AppState) -> Flask:
         except Busy as e:
             return err(str(e), 409)
 
+    def fetch_events(browser, log) -> str:
+        """Lee las tareas con fecha del Aula Virtual y las guarda."""
+        log("📅 Leyendo tareas y fechas de entrega…")
+        try:
+            events = browser.get_action_events()
+        except Exception as e:  # no debe estropear la sincronización
+            log(f"  – No se pudieron leer las tareas: {e}")
+            return "Tareas: no se pudieron leer."
+        reg = state.registry()
+        try:
+            reg.save_events(events)
+            pending_count = len(group_events(reg.events())["upcoming"])
+        finally:
+            reg.close()
+        return f"Tareas: {pending_count} entregas próximas."
+
+    @app.post("/api/tasks/refresh")
+    def tasks_refresh():
+        local_only()
+        browser = state.jobs.state.get("browser")
+        if browser is None or not state.jobs.state.get("moodle_courses"):
+            return err("Inicia sesión primero en 📥 Sincronizar Aula Virtual.")
+        try:
+            return jsonify({"job": state.jobs.submit(
+                "tasks", "Actualizar tareas", lambda job: fetch_events(browser, job.log.append)).as_dict()})
+        except Busy as e:
+            return err(str(e), 409)
+
     @app.get("/api/sync/courses")
     def sync_courses():
         local_only()
@@ -611,6 +739,7 @@ def create_app(state: AppState) -> Flask:
             text = format_summary(results, dry_run)
             if dry_run:
                 return text
+            text += "\n\n" + fetch_events(browser, job.log.append)
             reg = state.registry()
             try:
                 sync_library(root, reg)

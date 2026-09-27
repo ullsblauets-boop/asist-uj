@@ -18,8 +18,12 @@ Funciona en el navegador del PC y, opcionalmente, en el móvil dentro de tu wifi
 | 3 | Biblioteca de documentos con etiquetas | ✅ |
 | 4 | Búsqueda dentro del contenido de los documentos | ✅ |
 | 5 | Resolver ejercicio con fotos | ✅ |
-| 6 | Modo «Como mis apuntes / profesor» | ⏳ siguiente |
-| 7 | Tareas, entregas y calendario | ⏳ |
+| 6 | Modo «Como mis apuntes / profesor» | ✅ |
+| 7 | Tareas, entregas, calendario y avisos | ✅ |
+
+Todas las fases están construidas y probadas con un Aula Virtual y un Claude
+simulados. La sincronización está comprobada con tu cuenta real. Las funciones de
+IA, las tareas y los avisos están pendientes de probar con tus datos reales.
 
 ## Instalación en Windows
 
@@ -47,9 +51,9 @@ servidor: déjala abierta) y la aplicación en tu navegador, en
 | 📚 **Mis asignaturas** | Asignaturas con sus temas y materiales por tipo. Aquí indicas el **profesor** de cada una. |
 | 📥 **Sincronizar Aula Virtual** | 1) Se abre Edge y **tú** inicias sesión. 2) Marcas las asignaturas. 3) Sincronizas. Puedes solo analizar primero. |
 | 📖 **Biblioteca de apuntes** | Todo tu material con filtros (asignatura, tema, tipo, origen, texto). Subes fotos, capturas y PDF, y editas las etiquetas. |
-| 📷 **Resolver ejercicio** | Sube la foto de un ejercicio: se lee, se busca el método en tus apuntes y se resuelve explicado (requiere IA). |
+| 📷 **Resolver ejercicio** | Sube la foto de un ejercicio: se lee, se busca el método en tus apuntes y se resuelve explicado, incluso con el estilo de tus apuntes o de clase (requiere IA). |
 | 🔎 **Buscar en mis apuntes** | Busca **dentro del contenido** de tus documentos (con página y fragmento). Con la IA activada, puedes **preguntar** a tus materiales. |
-| 📅 **Tareas y entregas** | Próximamente (Fase 7). |
+| 📅 **Tareas y entregas** | Entregas vencidas y próximas, calendario del mes, avisos de los profesores y exportación a Google Calendar u Outlook. |
 | ⚙️ **Configuración** | Carpeta (o Google Drive), IA, modo Claude Pro y acceso desde el móvil. |
 
 ### Seguridad del Aula Virtual
@@ -103,7 +107,9 @@ corregidos · Exámenes · Prácticas · Pizarra · Otros.
    - **Explicación corta**: datos, fórmula y resultado.
    - **Paso a paso**: datos → qué se pide → fórmula o procedimiento → por qué se
      usa → sustitución → operaciones → resultado con unidades.
-   - «Como mis apuntes» y «Modo profesor» llegan en la Fase 6.
+   - **Como mis apuntes**: con tu terminología, notación y orden de pasos.
+   - **Modo profesor**: como una solución modelo, con el estilo académico y el
+     procedimiento de los materiales de clase.
 4. Pulsa **RESOLVER**.
 
 Qué hace:
@@ -124,10 +130,56 @@ Qué hace:
   carpeta **nunca se usa como fuente**, para no confundir una resolución de la IA
   con el método de tu profesor.
 
+### Modos «Como mis apuntes» y «Modo profesor»
+
+Para estos modos, la aplicación crea un **perfil de estilo** de cada asignatura.
+Claude analiza una muestra de sus materiales: primero los del profesor
+(ejercicios resueltos, problemas, exámenes y teoría) y después tus apuntes. De
+ahí saca:
+
+- terminología y notación, y las fórmulas tal como se escriben;
+- el orden de los pasos y el nivel de explicación;
+- convenciones (unidades, redondeos, signos) y procedimientos por tipo de ejercicio;
+- y **si hay material suficiente**.
+
+Se crea automáticamente la primera vez (de 0,05 a 0,15 US$ por asignatura) y
+puedes verlo o actualizarlo en 📚 Mis asignaturas.
+
+- Si hay suficiente material, la resolución lo indica: «Estilo: siguiendo los
+  materiales de «Cálculo I»».
+- Si no, lo dice: «No hay suficiente material de esta asignatura para reproducir
+  el estilo de clase; uso un estilo estándar».
+- El Modo profesor **no afirma imitar al profesor**: reproduce el estilo de los
+  materiales disponibles.
+
 Coste orientativo: entre 0,05 y 0,30 US$ por ejercicio con Opus, que se muestra
 en cada resolución. La IA puede equivocarse, sobre todo en cálculos largos:
 revisa las operaciones. Es para estudiar y practicar, no para usar en
 evaluaciones.
+
+## Tareas, entregas y avisos
+
+Al sincronizar se leen del Aula Virtual:
+
+- **Tareas con fecha**: las mismas de la «Línea de tiempo» de tu Área personal,
+  leídas con la función oficial del calendario de Moodle. En 📅 Tareas verás:
+  - las **vencidas o pendientes**, las **próximas** agrupadas por día y un
+    **calendario del mes**, cada una con un botón para abrirla en el Aula Virtual;
+  - una casilla **«Hecha»** para organizarte (es una marca local: no entrega nada).
+- **Avisos de los profesores**: se leen del foro de avisos de cada asignatura y
+  se marcan como **nuevos** los que no habías visto.
+- **Exportar al calendario**: «Descargar calendario (.ics)» genera un archivo con
+  todas las entregas (con aviso un día antes) para importarlo en Google Calendar
+  (Configuración → Importar y exportar) u Outlook.
+- En 🏠 Inicio aparecen las próximas entregas y los avisos recientes. Con la sesión
+  ya iniciada, «Actualizar tareas» las refresca sin sincronizar los archivos.
+
+Limitaciones:
+
+- Solo aparecen las tareas que Moodle pone en tu calendario. Una fecha escrita
+  solo dentro de un PDF no se detecta.
+- Los avisos se leen de la página del foro. Si con tu cuenta no aparecen, el
+  diagnóstico lo mostrará y se ajustará.
 
 ## Búsqueda en tus documentos
 
@@ -176,7 +228,8 @@ de la suscripción Claude Pro**. Sin activar la IA, todo lo demás funciona grat
 | Resúmenes automáticos de los materiales | Sí |
 | Preguntar a tus materiales | Sí |
 | Subir con asignatura «Automático» / organizar la bandeja | Sí |
-| Resolver ejercicio | Sí |
+| Resolver ejercicio (y perfil de estilo de la asignatura) | Sí |
+| Tareas, calendario y avisos | No |
 
 Para activarla, en ⚙️ Configuración:
 
@@ -215,8 +268,9 @@ conectado a la misma wifi, y añádela a la pantalla de inicio.
 
 ## Diagnóstico
 
-Si la sincronización no funciona con tu cuenta, ejecuta el diagnóstico (no
-descarga nada) y revisa lo que muestra:
+Si algo no funciona con tu cuenta, ejecuta el diagnóstico. No descarga nada:
+comprueba el inicio de sesión, las asignaturas, cómo se lee un curso, el foro de
+avisos y las tareas con fecha.
 
 ```powershell
 .venv\Scripts\python -m uji_sync --diagnostico
@@ -239,6 +293,8 @@ uji_sync/
   claude_pro.py  índice para la app de Claude (sin API)
   search.py      búsqueda: extracción de texto, índice por palabras (FTS5), significado, OCR
   solver.py      resolver ejercicio: leer la foto, buscar el método, resolver, historial
+  style.py       perfil de estilo de cada asignatura (modos «Como mis apuntes» y «Modo profesor»)
+  tasks.py       tareas: agrupación y exportación a calendario (.ics)
   config.py, apikey.py, fsutils.py, cli.py
 tests/           pruebas con un Moodle simulado y un Claude simulado (sin coste)
 ```

@@ -37,6 +37,7 @@ class CourseResult:
     skipped: list[str] = field(default_factory=list)   # no descargables / sin permiso
     errors: list[str] = field(default_factory=list)
     changed_keys: list[str] = field(default_factory=list)  # archivos nuevos o actualizados
+    new_announcements: list[dict] = field(default_factory=list)  # avisos no vistos antes (Fase 7)
 
     def line(self, dry_run: bool = False) -> str:
         n, u = len(self.new), len(self.updated)
@@ -49,7 +50,23 @@ class CourseResult:
             parts.append(f"{len(self.skipped)} no disponibles")
         if self.errors:
             parts.append(f"{len(self.errors)} errores")
+        if self.new_announcements:
+            parts.append(f"📢 {len(self.new_announcements)} avisos nuevos")
         return f"{self.course_name} → " + ", ".join(parts)
+
+
+ANNOUNCEMENT_NAMES = ("aviso", "anuncio", "novedad", "news", "announcement", "tauler", "notici")
+
+
+def find_announcements_forum(sections: list[Section]):
+    """El foro de avisos: por su nombre o, si no, el primer foro de la sección general."""
+    forums = [i for s in sections for i in s.items if i.modtype == "forum" and i.cmid is not None]
+    for f in forums:
+        if any(n in f.name.lower() for n in ANNOUNCEMENT_NAMES):
+            return f
+    general = [i for s in sections if s.number == 0 for i in s.items
+               if i.modtype == "forum" and i.cmid is not None]
+    return general[0] if general else None
 
 
 def format_summary(results: list[CourseResult], dry_run: bool = False) -> str:
@@ -104,6 +121,8 @@ class Syncer:
             self.log(f"  ✗ No se pudo leer el curso: {e}")
             return res
         course_dir = PurePosixPath(safe_name(course.fullname))
+        if not self.dry_run:
+            self._sync_announcements(course, sections, res)
         for sec in sections:
             sec_dir = course_dir / self._section_dirname(sec)
             for item in sec.items:
@@ -115,6 +134,20 @@ class Syncer:
                     res.errors.append(f"{item.name}: {e}")
                     self.log(f"  ✗ {item.name}: {e}")
         return res
+
+    def _sync_announcements(self, course: Course, sections: list[Section], res: CourseResult) -> None:
+        """Lee el foro de avisos de la asignatura y apunta los nuevos."""
+        forum = find_announcements_forum(sections)
+        if forum is None or not hasattr(self.browser, "get_forum_discussions"):
+            return
+        try:
+            items = self.browser.get_forum_discussions(forum.cmid)
+        except MoodleError as e:
+            self.log(f"  – Avisos: no se pudieron leer ({e})")
+            return
+        res.new_announcements = self.registry.add_announcements(course.fullname, items)
+        for a in res.new_announcements:
+            self.log(f"  📢 {a['title']}")
 
     @staticmethod
     def _section_dirname(sec: Section) -> str:

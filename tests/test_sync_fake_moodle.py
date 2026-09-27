@@ -71,11 +71,20 @@ def test_full_flow(env):
     assert len(r.new) == 6 and r.unchanged == 0
     assert len(r.changed_keys) == 5  # los archivos (no el .url) pasan a la IA
     assert r.skipped == ["privado.pdf"]  # sin permiso: no se fuerza
-    assert "Matemáticas → 6 archivos nuevos, 0 sin cambios, 1 no disponibles" in format_summary([r])
+    assert [a["title"] for a in r.new_announcements] == ["Cambio de aula del examen", "Notas del parcial publicadas"]
+    assert r.new_announcements[0]["date"] == "2026-09-21T10:00:00"
+    assert "Matemáticas → 6 archivos nuevos, 0 sin cambios, 1 no disponibles, 📢 2 avisos nuevos" in format_summary([r])
 
     # Segunda: nada nuevo, sin duplicados
     r = run(browser, dest)
     assert (len(r.new), len(r.updated), r.unchanged) == (0, 0, 6) and r.changed_keys == []
+    assert r.new_announcements == []  # ya vistos
+    fake.discussions.append((3, "Tutorías el jueves"))
+    r = run(browser, dest)
+    assert [a["title"] for a in r.new_announcements] == ["Tutorías el jueves"]
+    events = browser.get_action_events()
+    assert [(e["id"], e["name"], e["course"], e["action"], e["overdue"]) for e in events] == [
+        (501, "Práctica 1", "Matemáticas", "Añadir entrega", 0), (502, "Cuestionario 1", "Matemáticas", "Intentar", 1)]
 
     # El profesor sustituye el PDF (nueva revisión): se actualiza y se guarda la versión anterior
     fake.resource_rev, fake.resource_body = 2, b"%PDF-1.4 tema 1 v2"

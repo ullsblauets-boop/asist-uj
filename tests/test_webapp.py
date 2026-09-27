@@ -195,6 +195,20 @@ def test_sync_job_end_to_end(tmp_path, state, client):
         root = Path(state.settings.dest_dir)
         assert (root / "_Para Claude" / "Índice de materiales.md").exists()
         assert state.settings.selected_course_ids == [1]
+        assert "Tareas: 1 entregas próximas." in job["result"] and "📢 2 avisos nuevos" in job["result"]
+        tasks = client.get("/api/tasks").get_json()
+        assert [e["name"] for e in tasks["upcoming"]] == ["Práctica 1"]
+        assert [e["name"] for e in tasks["overdue"]] == ["Cuestionario 1"]
+        assert [a["title"] for a in tasks["announcements"]] == ["Notas del parcial publicadas", "Cambio de aula del examen"]
+        client.post("/api/tasks/done", json={"id": 501, "done": True}, headers=H)
+        assert client.get("/api/tasks").get_json()["done"][0]["id"] == 501
+        ics = client.get("/api/tasks/calendar.ics")
+        assert ics.mimetype == "text/calendar" and b"Entrega: Pr\xc3\xa1ctica 1 (Matem\xc3\xa1ticas)" in ics.data
+        home = client.get("/api/home").get_json()
+        assert home["overdue"] == 1 and len(home["announcements"]) == 2
+        # Actualizar solo las tareas (con la sesión ya iniciada)
+        client.post("/api/tasks/refresh", json={}, headers=H)
+        assert "entregas próximas" in wait()["result"]
     finally:
         fake.stop()
 
@@ -260,7 +274,7 @@ def test_interface_in_browser(state, viewport, tmp_path):
             page.wait_for_selector("text=Carpeta de la biblioteca")
             go("resolver")
             page.wait_for_selector("text=RESOLVER")
-            assert page.locator("input[name=mode][value=profesor]").is_disabled()  # Fase 6
+            assert not page.locator("input[name=mode][value=profesor]").is_disabled()  # Fase 6 activa
             assert page.eval_on_selector_all("input[name=mode]", "els => els.map(e => e.value)") == [
                 "resultado", "corta", "pasos", "apuntes", "profesor"]
             page.set_input_files("#s-file", files=[{"name": "ej.jpg", "mimeType": "image/jpeg", "buffer": b"x"}])
@@ -276,8 +290,31 @@ def test_interface_in_browser(state, viewport, tmp_path):
             assert page.evaluate(f"document.documentElement.scrollWidth <= {viewport[0]}")
             page.screenshot(path=str(Path(os.environ.get("UJI_SYNC_SHOT_DIR", tmp_path)) / f"web_{viewport[0]}.png"),
                             full_page=False)
+            # Tareas, calendario y avisos (Fase 7)
+            now = int(time.time())
+            reg = state.registry()
+            reg.save_events([
+                {"id": 1, "course": "Cálculo I", "name": "Entrega práctica 2", "timesort": now + 2 * 86400,
+                 "url": "https://aulavirtual.uji.es/mod/assign/view.php?id=9", "action": "Añadir entrega",
+                 "overdue": 0, "modulename": "assign"},
+                {"id": 2, "course": "Cálculo I", "name": "Cuestionario 1", "timesort": now - 86400,
+                 "url": "", "action": "", "overdue": 1, "modulename": "quiz"}])
+            reg.add_announcements("Cálculo I", [{"url": "https://aulavirtual.uji.es/mod/forum/discuss.php?d=1",
+                                                 "title": "Cambio de aula", "date": "hoy"}])
+            reg.close()
+            go("tareas")
+            page.wait_for_selector("text=Vencidas o pendientes de entregar (1)")
+            assert page.locator(".cal-ev").count() >= 1 and page.locator(".cal-cell.today").count() == 1
+            assert "nuevo" in page.inner_text("#view") and "Cambio de aula" in page.inner_text("#view")
+            page.check(".done[data-id='1']")
+            page.wait_for_selector("text=Hechas (1)")
+            page.wait_for_timeout(400)
+            page.screenshot(path=str(Path(os.environ.get("UJI_SYNC_SHOT_DIR", tmp_path)) / f"tareas_{viewport[0]}.png"))
+
             go("inicio")
             page.wait_for_selector("text=Regla de la cadena")
+            assert "Vencidas" not in page.inner_text("#view") or "1 vencidas" in page.inner_text("#view")
+            assert "Cambio de aula" in page.inner_text("#view")
             assert page.locator("#view .edit").count() == 0  # en Inicio no se edita
             page.wait_for_timeout(400)
             page.screenshot(path=str(Path(os.environ.get("UJI_SYNC_SHOT_DIR", tmp_path)) / f"inicio_{viewport[0]}.png"))
@@ -334,7 +371,7 @@ def test_solve_api(client, state, tmp_path):
     r = client.post("/api/solve", data={"text": "Deriva sen(x²)", "course": "auto", "tema": "auto", "mode": "corta"},
                     headers=H, content_type="multipart/form-data").get_json()
     assert FakeSolver.calls[-1][:5] == (None, "Deriva sen(x²)", None, None, "corta")
-    bad = [{"text": "x", "mode": "profesor"}, {"text": "x", "course": "No existe"},
+    bad = [{"text": "x", "mode": "inventado"}, {"text": "x", "course": "No existe"},
            {"text": "x", "course": "Cálculo I", "tema": "../.."}, {"mode": "pasos"}]
     for d in bad:
         assert client.post("/api/solve", data=d, headers=H, content_type="multipart/form-data").status_code == 400, d
@@ -354,3 +391,34 @@ def test_solve_api(client, state, tmp_path):
     assert client.get("/api/solve/file?path=" + items[0]["path"]).data.decode() == "# Resolución"
     assert client.get("/api/solve/file?path=Cálculo I/03 - Tema 3/Tema 3.pdf").status_code == 404
     assert client.get("/api/solve/file?path=Cálculo I/_resoluciones_IA/../../../secreto.txt").status_code == 404
+
+
+def test_style_api(client, state):
+    from uji_sync.style import build_profile
+
+    calls = []
+
+    def builder(root, course, reg, model):
+        calls.append(course)
+        profile = {"suficiente": True, "motivo": "", "terminologia": ["derivada"], "notacion": ["f'(x)"],
+                   "formulas_habituales": [], "orden_de_pasos": ["Datos"], "nivel_de_explicacion": "medio",
+                   "convenciones": [], "procedimientos": [], "fuentes": ["a", "b"], "creado": "2026-09-27T10:00:00"}
+        reg.save_style(course, profile, 0.05)
+        return profile
+    state.style_builder = builder
+    assert client.get("/api/courses").get_json()["courses"][0]["style"] is None
+    assert client.post("/api/style/build", json={"course": "../x"}, headers=H).status_code == 400
+    client.post("/api/style/build", json={"course": "Cálculo I"}, headers=H)
+    for _ in range(100):
+        job = client.get("/api/job").get_json()["job"]
+        if not job["running"]:
+            break
+        time.sleep(0.05)
+    assert "a partir de 2 documentos" in job["result"] and calls == ["Cálculo I"]
+    assert client.get("/api/courses").get_json()["courses"][0]["style"] == {
+        "suficiente": True, "creado": "2026-09-27T10:00:00", "documentos": 2}
+    assert client.get("/api/style?course=Cálculo I").get_json()["profile"]["notacion"] == ["f'(x)"]
+    # El resolvedor lo reutiliza sin volver a crearlo
+    assert state.style_for("Cálculo I")["terminologia"] == ["derivada"] and calls == ["Cálculo I"]
+    state.settings.ai_consent = False
+    assert client.post("/api/style/build", json={"course": "Cálculo I"}, headers=H).status_code == 409

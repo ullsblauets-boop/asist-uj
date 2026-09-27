@@ -76,6 +76,34 @@ CREATE TABLE IF NOT EXISTS library (
     descripcion TEXT NOT NULL,
     added       TEXT NOT NULL
 );
+-- Perfil de estilo de cada asignatura (Fase 6).
+CREATE TABLE IF NOT EXISTS style_profiles (
+    course  TEXT PRIMARY KEY,
+    data    TEXT NOT NULL,
+    cost    REAL NOT NULL,
+    created TEXT NOT NULL
+);
+-- Tareas y entregas del calendario del Aula Virtual (Fase 7).
+CREATE TABLE IF NOT EXISTS events (
+    id         INTEGER PRIMARY KEY,
+    course     TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    timesort   INTEGER NOT NULL,
+    url        TEXT NOT NULL,
+    action     TEXT NOT NULL,
+    overdue    INTEGER NOT NULL,
+    modulename TEXT NOT NULL,
+    updated    TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS events_done (id INTEGER PRIMARY KEY);
+-- Avisos de los foros de cada asignatura (Fase 7).
+CREATE TABLE IF NOT EXISTS announcements (
+    url        TEXT PRIMARY KEY,
+    course     TEXT NOT NULL,
+    title      TEXT NOT NULL,
+    date       TEXT NOT NULL,
+    first_seen TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS course_meta (
     course   TEXT PRIMARY KEY,
     profesor TEXT NOT NULL
@@ -205,6 +233,54 @@ class Registry:
     def set_course_profesor(self, course: str, profesor: str) -> None:
         self.conn.execute("INSERT OR REPLACE INTO course_meta VALUES (?, ?)", (course, profesor))
         self.conn.commit()
+
+    # ---------------------------------------------------------- estilo (Fase 6)
+    def get_style(self, course: str) -> dict | None:
+        row = self.conn.execute("SELECT data FROM style_profiles WHERE course = ?", (course,)).fetchone()
+        return json.loads(row["data"]) if row else None
+
+    def save_style(self, course: str, data: dict, cost: float) -> None:
+        self.conn.execute("INSERT OR REPLACE INTO style_profiles VALUES (?, ?, ?, ?)",
+                          (course, json.dumps(data, ensure_ascii=False), cost, now()))
+        self.conn.commit()
+
+    # ---------------------------------------------------------- tareas y avisos (Fase 7)
+    def save_events(self, events: list[dict]) -> None:
+        """Sustituye las tareas conocidas por las recibidas del Aula Virtual."""
+        self.conn.execute("DELETE FROM events")
+        self.conn.executemany(
+            "INSERT OR REPLACE INTO events VALUES (:id, :course, :name, :timesort, :url, :action,"
+            " :overdue, :modulename, :updated)", [{**e, "updated": now()} for e in events])
+        self.conn.commit()
+
+    def events(self) -> list[dict]:
+        done = {r["id"] for r in self.conn.execute("SELECT id FROM events_done")}
+        rows = self.conn.execute("SELECT * FROM events ORDER BY timesort").fetchall()
+        return [{**dict(r), "overdue": bool(r["overdue"]), "done": r["id"] in done} for r in rows]
+
+    def set_event_done(self, event_id: int, done: bool) -> None:
+        if done:
+            self.conn.execute("INSERT OR IGNORE INTO events_done VALUES (?)", (event_id,))
+        else:
+            self.conn.execute("DELETE FROM events_done WHERE id = ?", (event_id,))
+        self.conn.commit()
+
+    def add_announcements(self, course: str, items: list[dict]) -> list[dict]:
+        """Guarda los avisos y devuelve los que no se habían visto antes."""
+        new = []
+        for it in items:
+            cur = self.conn.execute(
+                "INSERT OR IGNORE INTO announcements VALUES (?, ?, ?, ?, ?)",
+                (it["url"], course, it["title"], it.get("date", ""), now()))
+            if cur.rowcount:
+                new.append(it)
+        self.conn.commit()
+        return new
+
+    def announcements(self, limit: int = 50) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM announcements ORDER BY first_seen DESC, rowid DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rows]
 
     def last_run(self) -> str | None:
         row = self.conn.execute(

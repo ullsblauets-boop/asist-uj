@@ -138,6 +138,44 @@ def test_illegible_photo_stops_early(root, tmp_path):
 def test_modes_and_validation(root):
     solver = ExerciseSolver(root, None, client=FakeClaude())
     with pytest.raises(AIError):
-        solver.solve(None, "x", None, None, "profesor")  # Fase 6
+        solver.solve(None, "x", None, None, "inventado")
     with pytest.raises(AIError):
         solver.solve(None, "x", "No existe", None, "pasos")
+
+
+STYLE = {"suficiente": True, "motivo": "", "terminologia": ["función compuesta"], "notacion": ["f'(x)"],
+         "formulas_habituales": ["(f∘g)'(x) = f'(g(x))·g'(x)"], "orden_de_pasos": ["Identificar f y g", "Derivar"],
+         "nivel_de_explicacion": "detallado", "convenciones": ["resultado simplificado"],
+         "procedimientos": [], "fuentes": ["Cálculo I/03 - Tema 3/Tema 3.pdf"]}
+
+
+@pytest.mark.parametrize("mode", ["apuntes", "profesor"])
+def test_style_modes_use_course_profile(root, mode):
+    asked = []
+    claude = FakeClaude(search_first=False)
+    solver = ExerciseSolver(root, lambda q, c: [], client=claude,
+                            style_provider=lambda course: asked.append(course) or STYLE)
+    sol = solver.solve(None, "Deriva sen(x²)", None, None, mode)
+    assert asked == ["Cálculo I"]  # el perfil de la asignatura detectada
+    assert "> **Estilo:** siguiendo los materiales de «Cálculo I» (1 documentos analizados)" in sol.markdown
+    prompt = claude.calls[-1]["messages"][0]["content"][-1]["text"]
+    assert "# Perfil de estilo de la asignatura" in prompt and "f'(g(x))·g'(x)" in prompt
+    assert ("COMO EN SUS APUNTES" if mode == "apuntes" else "MODO PROFESOR") in prompt
+    if mode == "profesor":
+        assert "No digas que imitas al profesor" in prompt
+
+
+def test_style_modes_without_enough_material(root):
+    from uji_sync.solver import NO_STYLE
+
+    poor = {**STYLE, "suficiente": False, "motivo": "Solo hay un horario."}
+    claude = FakeClaude(search_first=False)
+    sol = ExerciseSolver(root, lambda q, c: [], client=claude,
+                         style_provider=lambda c: poor).solve(None, "x", "Cálculo I", None, "profesor")
+    assert f"> {NO_STYLE}" in sol.markdown and "Estilo:** siguiendo" not in sol.markdown
+    assert "No hay material suficiente: usa un estilo estándar." in claude.calls[-1]["messages"][0]["content"][-1]["text"]
+    # Sin asignatura identificada tampoco se finge un estilo
+    read = {**READ_OK, "asignatura": "No lo sé"}
+    sol = ExerciseSolver(root, None, client=FakeClaude(read=read, search_first=False),
+                         style_provider=lambda c: STYLE).solve(None, "x", None, None, "apuntes")
+    assert f"> {NO_STYLE}" in sol.markdown

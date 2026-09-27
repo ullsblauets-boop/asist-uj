@@ -37,10 +37,13 @@ MODES = {
     "resultado": "Resultado",
     "corta": "Explicación corta",
     "pasos": "Paso a paso",
-    "apuntes": "Como mis apuntes",   # Fase 6
-    "profesor": "Modo profesor",     # Fase 6
+    "apuntes": "Como mis apuntes",
+    "profesor": "Modo profesor",
 }
-AVAILABLE_MODES = ("resultado", "corta", "pasos")
+AVAILABLE_MODES = tuple(MODES)
+STYLE_MODES = ("apuntes", "profesor")
+NO_STYLE = ("No hay suficiente material de esta asignatura para reproducir el estilo de clase; "
+            "uso un estilo estándar.")
 
 MODE_INSTRUCTIONS = {
     "resultado": "Da solo el resultado final con sus unidades y, como mucho, una frase con el "
@@ -56,6 +59,18 @@ MODE_INSTRUCTIONS = {
 ### Operaciones
 ### Resultado
 (Resultado final destacado en negrita, con sus unidades cuando corresponda.)""",
+    "apuntes": """Explícalo COMO EN SUS APUNTES, usando el perfil de estilo de la asignatura:
+su terminología, su notación y sus fórmulas tal como aparecen, el mismo orden de
+pasos y el mismo nivel de detalle. Mantén estas partes, con los nombres que usen
+sus apuntes si son otros: datos, qué se pide, fórmula o procedimiento (y por qué),
+sustitución, operaciones y resultado con unidades. Si el perfil no es suficiente,
+usa una explicación paso a paso estándar.""",
+    "profesor": """MODO PROFESOR: redacta la resolución como una solución modelo de la
+asignatura, con el estilo académico y el procedimiento de sus materiales de
+clase (perfil de estilo): mismas convenciones, notación, orden de pasos,
+justificaciones y nivel. No digas que imitas al profesor ni pongas palabras en
+su boca; si hace falta, di «siguiendo el estilo de los materiales de la
+asignatura». Si el perfil no es suficiente, usa un estilo académico estándar.""",
 }
 
 READ_PROMPT = """\
@@ -154,7 +169,8 @@ class Solution:
         return self.__dict__.copy()
 
 
-def render(read: dict, solved: dict, mode: str) -> str:
+def render(read: dict, solved: dict, mode: str, style: dict | None = None,
+           course: str = "") -> str:
     lines = []
     if solved["metodo_origen"] == "apuntes" and solved["fuentes"]:
         main = solved["fuentes"][0]
@@ -164,6 +180,12 @@ def render(read: dict, solved: dict, mode: str) -> str:
         lines.append(f"> {STANDARD_METHOD}")
     if solved["ejercicio_parecido"]:
         lines.append(f"> **Ejercicio parecido:** {solved['ejercicio_parecido']}")
+    if mode in STYLE_MODES:
+        if style and style.get("suficiente"):
+            lines.append(f"> **Estilo:** siguiendo los materiales de «{course}» "
+                         f"({len(style.get('fuentes', []))} documentos analizados)")
+        else:
+            lines.append(f"> {NO_STYLE}")
     lines += ["", "## Enunciado", "", read["enunciado"], "", "## Resolución", "", solved["solucion"].strip()]
     if mode != "resultado" and solved["resultado"] and solved["resultado"] not in solved["solucion"]:
         lines += ["", f"**Resultado:** {solved['resultado']}"]
@@ -181,8 +203,10 @@ def render(read: dict, solved: dict, mode: str) -> str:
 class ExerciseSolver:
     def __init__(self, root: Path, searcher: Callable[[str, list[str]], list[dict]] | None,
                  client=None, model: str = DEFAULT_MODEL,
-                 assistant_factory: Callable[..., Assistant] | None = None):
+                 assistant_factory: Callable[..., Assistant] | None = None,
+                 style_provider: Callable[[str], dict | None] | None = None):
         self.root = root
+        self.style_provider = style_provider  # asignatura -> perfil de estilo (lo crea si falta)
         self.searcher = searcher
         self._client = client
         self.model = model
@@ -197,7 +221,7 @@ class ExerciseSolver:
     def solve(self, image: Path | None, text: str, course: str | None, tema: str | None,
               mode: str, progress: Callable[[str], None] = lambda _: None) -> Solution:
         if mode not in AVAILABLE_MODES:
-            raise AIError("ese modo llegará en la Fase 6")
+            raise AIError("modo desconocido")
         courses = list_courses(self.root)
         if course and course not in courses:
             raise AIError("asignatura desconocida")
@@ -254,7 +278,23 @@ class ExerciseSolver:
             step(f"   {len(fragments)} fragmentos relevantes encontrados" if fragments
                  else "   No he encontrado nada relacionado en tus apuntes")
 
-        # 3. Resolver --------------------------------------------------------
+        # 3. Estilo de la asignatura (modos «Como mis apuntes» y «Modo profesor») -------
+        style = None
+        if mode in STYLE_MODES:
+            if course and self.style_provider:
+                step("🎨 Consultando el estilo de los materiales de la asignatura…")
+                style = self.style_provider(course)
+            if not (style and style.get("suficiente")):
+                step("   " + NO_STYLE)
+        style_text = ""
+        if style and style.get("suficiente"):
+            from .style import profile_for_prompt
+
+            style_text = f"\n# Perfil de estilo de la asignatura\n{profile_for_prompt(style)}\n"
+        elif mode in STYLE_MODES:
+            style_text = "\n# Perfil de estilo de la asignatura\nNo hay material suficiente: usa un estilo estándar.\n"
+
+        # 4. Resolver --------------------------------------------------------
         step(f"🧮 Resolviendo ({MODES[mode]})…")
         assistant = self.assistant_factory(self.root, course or None, client=self.client,
                                            model=self.model, searcher=self.searcher,
@@ -276,6 +316,7 @@ Asignatura: {course or 'desconocida'}{' · Tema: ' + tema if tema else ''}
 # Fragmentos de sus materiales encontrados
 {frag_text}
 
+{style_text}
 # Modo de respuesta
 {MODE_INSTRUCTIONS[mode]}
 
@@ -290,7 +331,7 @@ Resuelve el ejercicio siguiendo las reglas."""}]
             solved = json.loads(answer)
         except ValueError as e:
             raise AIError("la IA no ha devuelto una resolución válida") from e
-        markdown = render(read, solved, mode)
+        markdown = render(read, solved, mode, style, course)
         sol = Solution(True, markdown, enunciado=read["enunciado"], course=course, tema=tema or "",
                        metodo_origen=solved["metodo_origen"], fuentes=solved["fuentes"],
                        cost=cost, steps=steps)

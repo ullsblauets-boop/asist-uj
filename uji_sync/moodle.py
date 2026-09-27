@@ -323,6 +323,52 @@ class MoodleBrowser:
         )
         return list(dict.fromkeys(strip_query(u) for u in urls))
 
+    # ---------- tareas y avisos (Fase 7) ----------
+    def get_action_events(self, days_ahead: int = 120, days_back: int = 14) -> list[dict]:
+        """Tareas con fecha (las de la «Línea de tiempo» del Área personal)."""
+        now = int(time.time())
+        events, after = [], 0
+        for _ in range(10):  # como mucho 10 páginas de 50
+            data = self.ajax("core_calendar_get_action_events_by_timesort", {
+                "timesortfrom": now - days_back * 86400, "timesortto": now + days_ahead * 86400,
+                "aftereventid": after, "limitnum": 50,
+            })
+            batch = data.get("events", [])
+            for e in batch:
+                action = e.get("action") or {}
+                course = e.get("course") or {}
+                events.append({
+                    "id": int(e["id"]), "course": course.get("fullname") or "",
+                    "name": e.get("activityname") or e.get("name") or "",
+                    "timesort": int(e.get("timesort") or e.get("timestart") or 0),
+                    "url": action.get("url") or e.get("url") or "",
+                    "action": action.get("name") or "", "overdue": int(bool(e.get("overdue"))),
+                    "modulename": e.get("modulename") or "",
+                })
+            if len(batch) < 50:
+                break
+            after = int(batch[-1]["id"])
+        return events
+
+    def get_forum_discussions(self, cmid: int) -> list[dict]:
+        """Debates de un foro (p. ej. «Avisos»), leídos de su página."""
+        self._goto(f"{self.base_url}/mod/forum/view.php?id={cmid}")
+        return self.page.evaluate(
+            """() => {
+                 const seen = new Set(), out = [];
+                 for (const a of document.querySelectorAll('#region-main a[href*="/mod/forum/discuss.php?d="]')) {
+                   const url = a.href.split('#')[0];
+                   const title = a.textContent.replace(/\s+/g, ' ').trim();
+                   if (!title || seen.has(url)) continue;
+                   seen.add(url);
+                   const row = a.closest('tr, [data-region="discussion-list-item"], article, li');
+                   const t = row && row.querySelector('time');
+                   out.push({url, title, date: t ? (t.getAttribute('datetime') || t.textContent.trim()) : ''});
+                 }
+                 return out.slice(0, 30);
+               }"""
+        )
+
     def download(self, url: str) -> Download:
         time.sleep(self.delay)
         resp = self.context.request.get(url, timeout=300_000)

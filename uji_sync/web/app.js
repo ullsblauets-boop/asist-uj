@@ -104,6 +104,16 @@ const pages = {
         <div class="card"><div class="muted">En la bandeja de apuntes</div><div class="stat">${h.inbox}</div>
           <a class="btn small secondary" href="#biblioteca">📖 Ir a la biblioteca</a></div>
       </div>
+      <div class="grid">
+        <div class="card"><h3>📅 Próximas entregas</h3>
+          ${h.overdue ? `<p class="warn">⚠️ ${h.overdue} vencidas o pendientes</p>` : ""}
+          ${h.upcoming.length ? `<ul class="list">${h.upcoming.map((e) => `<li><b>${esc(e.name)}</b>
+            <div class="muted">${esc(e.course)} · ${new Date(e.timesort * 1000).toLocaleString("es-ES", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</div></li>`).join("")}</ul>`
+            : '<p class="muted">No hay entregas próximas.</p>'}
+          <a href="#tareas">Ver todas →</a></div>
+        <div class="card"><h3>📢 Avisos recientes</h3>
+          ${h.announcements.length ? `<ul class="list">${h.announcements.map(announcementLine).join("")}</ul>` : '<p class="muted">Sin avisos.</p>'}</div>
+      </div>
       <div class="card"><h3>🆕 Novedades (últimos 14 días)</h3>
         ${h.recent.length ? `<ul class="list">${h.recent.map((it) => itemLine(it)).join("")}</ul>`
           : '<p class="muted">Todavía no hay novedades. Sincroniza el Aula Virtual o sube tus apuntes.</p>'}
@@ -125,7 +135,34 @@ const pages = {
           <div class="row"><input class="grow profe" data-course="${esc(c.name)}" placeholder="Profesor/a" value="${esc(c.profesor)}">
             <button class="btn small save-profe" data-course="${esc(c.name)}">Guardar</button></div>
           <p><a href="#biblioteca?course=${encodeURIComponent(c.name)}">Ver materiales →</a></p>
-        </div>`).join("")}</div>`;
+          <div class="muted">🎨 Estilo de clase: ${c.style ? (c.style.suficiente ? `analizado (${c.style.documentos} documentos)`
+            : "analizado, material insuficiente") : "sin analizar"}</div>
+          <div class="row" style="margin-top:6px">
+            ${c.style ? `<button class="btn small secondary see-style" data-course="${esc(c.name)}">Ver</button>` : ""}
+            ${status.ai.ready ? `<button class="btn small secondary build-style" data-course="${esc(c.name)}">${c.style ? "Actualizar" : "Analizar"} estilo</button>` : ""}
+          </div>
+          <div class="style-box"></div>
+        </div>`).join("")}</div>
+      <p class="muted">El estilo de clase lo usan los modos «Como mis apuntes» y «Modo profesor» de Resolver ejercicio.
+        Se crea automáticamente la primera vez que usas esos modos; conviene actualizarlo cuando tengas más material.</p>`;
+    for (const b of view().querySelectorAll(".build-style")) {
+      b.onclick = () => confirm(`Claude analizará una muestra de los materiales de «${b.dataset.course}» (una vez, coste pequeño). ¿Seguir?`)
+        && startJob("/api/style/build", { course: b.dataset.course }, () => route());
+    }
+    for (const b of view().querySelectorAll(".see-style")) {
+      b.onclick = async () => {
+        const { profile: p } = await api("/api/style?course=" + encodeURIComponent(b.dataset.course));
+        const box = b.closest(".card").querySelector(".style-box");
+        const list = (title, arr) => arr?.length ? `<b>${title}</b><ul>${arr.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : "";
+        box.innerHTML = p ? `<div class="msg bot" style="max-width:100%">
+          ${p.suficiente ? "" : `<p class="warn">Material insuficiente: ${esc(p.motivo)}</p>`}
+          ${list("Terminología", p.terminologia)}${list("Notación", p.notacion)}${list("Fórmulas", p.formulas_habituales)}
+          ${list("Orden de pasos", p.orden_de_pasos)}${list("Convenciones", p.convenciones)}
+          ${p.nivel_de_explicacion ? `<p><b>Nivel:</b> ${esc(p.nivel_de_explicacion)}</p>` : ""}
+          ${(p.procedimientos || []).map((pr) => `<p><b>${esc(pr.tipo_de_ejercicio)}</b> (${esc(pr.fuente)}): ${pr.pasos.map(esc).join(" → ")}</p>`).join("")}
+          <p class="muted">Basado en ${p.fuentes.length} documentos.</p></div>` : "";
+      };
+    }
     for (const b of view().querySelectorAll(".save-profe")) {
       b.onclick = async () => {
         const input = view().querySelector(`.profe[data-course="${CSS.escape(b.dataset.course)}"]`);
@@ -442,12 +479,67 @@ const pages = {
     $("#question").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
   },
 
-  async tareas() {
+  async tareas(params) {
+    const t = await api("/api/tasks");
+    const all = [...t.overdue, ...t.upcoming, ...t.done];
+    const day = (ts) => new Date(ts * 1000);
+    const fmtDay = (ts) => day(ts).toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" });
+    const fmtTime = (ts) => day(ts).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+    const left = (ts) => {
+      const d = Math.ceil((ts * 1000 - Date.now()) / 86400000);
+      return d === -1 ? "hace 1 día" : d < 0 ? `hace ${-d} días` : d === 0 ? "hoy" : d === 1 ? "mañana" : `en ${d} días`;
+    };
+    const line = (e) => `<li><div class="row">
+        <input type="checkbox" class="done" data-id="${e.id}" ${e.done ? "checked" : ""} title="Marcar como hecha">
+        <span class="item-title grow">${esc(e.name)}</span>
+        ${e.action ? `<span class="badge">${esc(e.action)}</span>` : ""}
+        ${e.url ? `<a class="btn small secondary" href="${esc(e.url)}" target="_blank" rel="noopener">Abrir</a>` : ""}</div>
+      <div class="muted">${esc(e.course)} · ${fmtDay(e.timesort)} a las ${fmtTime(e.timesort)} · <b>${left(e.timesort)}</b></div></li>`;
+    const byDay = {};
+    for (const e of t.upcoming) (byDay[day(e.timesort).toDateString()] ||= []).push(e);
+
+    // calendario del mes
+    const month = new Date(); const offset = +(params.get("mes") || 0);
+    month.setDate(1); month.setMonth(month.getMonth() + offset);
+    const first = (month.getDay() + 6) % 7, days = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+    let cells = "";
+    for (let i = 0; i < first; i++) cells += '<div class="cal-cell empty"></div>';
+    for (let d = 1; d <= days; d++) {
+      const date = new Date(month.getFullYear(), month.getMonth(), d);
+      const evs = all.filter((e) => day(e.timesort).toDateString() === date.toDateString());
+      const today = date.toDateString() === new Date().toDateString();
+      cells += `<div class="cal-cell${today ? " today" : ""}"><div class="cal-day">${d}</div>${evs.map((e) =>
+        `<div class="cal-ev${e.done ? " done" : ""}" title="${esc(e.course + ": " + e.name)}">${esc(e.name)}</div>`).join("")}</div>`;
+    }
+    const m = month.toLocaleDateString("es-ES", { month: "long", year: "numeric" });
+    const monthName = m.charAt(0).toUpperCase() + m.slice(1);  // «Septiembre de 2026»
+
     view().innerHTML = `
       <h2>📅 Tareas y entregas</h2>
-      <p class="lead">Próximamente (Fase 7).</p>
-      <div class="card soon"><p>Mostrará las tareas del Aula Virtual con su fecha de entrega, avisos de las próximas y un calendario.</p>
-        <p class="muted">Antes de construirlo se comprobará qué funciones de Moodle están disponibles para tu cuenta.</p></div>`;
+      <p class="lead">Las tareas con fecha de tu Aula Virtual. Se actualizan al sincronizar.</p>
+      <div class="row" style="margin-bottom:14px">
+        ${status.local ? '<button class="btn small" id="refresh">🔄 Actualizar tareas</button>' : ""}
+        <a class="btn small secondary" href="/api/tasks/calendar.ics" download>📆 Descargar calendario (.ics)</a>
+        <span class="muted">Impórtalo en Google Calendar (Configuración → Importar) u Outlook.</span>
+      </div>
+      ${all.length ? "" : '<div class="card muted">Aún no hay tareas. Sincroniza el Aula Virtual para leerlas.</div>'}
+      ${t.overdue.length ? `<div class="card"><h3 class="warn">⚠️ Vencidas o pendientes de entregar (${t.overdue.length})</h3>
+        <ul class="list">${t.overdue.map(line).join("")}</ul></div>` : ""}
+      ${t.upcoming.length ? `<div class="card"><h3>Próximas entregas</h3>${Object.values(byDay).map((evs) =>
+        `<h4 style="margin:12px 0 0;text-transform:capitalize">${fmtDay(evs[0].timesort)}</h4><ul class="list">${evs.map(line).join("")}</ul>`).join("")}</div>` : ""}
+      <div class="card"><div class="row"><h3 class="grow">${esc(monthName)}</h3>
+          <a class="btn small secondary" href="#tareas?mes=${offset - 1}">‹</a><a class="btn small secondary" href="#tareas?mes=0">Hoy</a>
+          <a class="btn small secondary" href="#tareas?mes=${offset + 1}">›</a></div>
+        <div class="cal">${["L", "M", "X", "J", "V", "S", "D"].map((d) => `<div class="cal-head">${d}</div>`).join("")}${cells}</div></div>
+      ${t.done.length ? `<details class="card"><summary><b>✅ Hechas (${t.done.length})</b></summary><ul class="list">${t.done.map(line).join("")}</ul></details>` : ""}
+      <div class="card"><h3>📢 Avisos de los profesores</h3>
+        ${t.announcements.length ? `<ul class="list">${t.announcements.map(announcementLine).join("")}</ul>`
+          : '<p class="muted">Aún no hay avisos. Se leen del foro de avisos de cada asignatura al sincronizar.</p>'}</div>`;
+    for (const c of view().querySelectorAll(".done")) {
+      c.onchange = async () => { await api("/api/tasks/done", { method: "POST", json: { id: +c.dataset.id, done: c.checked } }); route(); };
+    }
+    const r = $("#refresh");
+    if (r) r.onclick = () => startJob("/api/tasks/refresh", {}, () => route());
   },
 
   async configuracion() {
@@ -510,6 +602,13 @@ const pages = {
     };
   },
 };
+
+function announcementLine(a) {
+  const isNew = Date.now() - new Date(a.first_seen).getTime() < 7 * 86400000;
+  return `<li><div class="row"><span class="item-title grow"><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title)}</a></span>
+    ${isNew ? '<span class="badge accent">nuevo</span>' : ""}</div>
+    <div class="muted">${esc(a.course)}${a.date ? " · " + esc(a.date) : ""}</div></li>`;
+}
 
 function itemLine(it, editable) {
   return `<li>

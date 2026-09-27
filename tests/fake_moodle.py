@@ -21,6 +21,18 @@ class FakeMoodle:
         self.resource_rev = 1
         self.resource_body = b"%PDF-1.4 tema 1 v1"
         self.forbidden_cmid = 14  # recurso que el alumno no puede descargar
+        self.discussions = [(1, "Cambio de aula del examen"), (2, "Notas del parcial publicadas")]
+        now = int(__import__("time").time())
+        self.events = [
+            {"id": 501, "name": "Entrega práctica 1 está en fecha límite", "activityname": "Práctica 1",
+             "timesort": now + 3 * 86400, "course": {"id": 1, "fullname": "Matemáticas"},
+             "action": {"name": "Añadir entrega", "url": "http://aula/mod/assign/view.php?id=77"},
+             "overdue": False, "modulename": "assign"},
+            {"id": 502, "name": "Cuestionario tema 1", "activityname": "Cuestionario 1",
+             "timesort": now - 86400, "course": {"id": 1, "fullname": "Matemáticas"},
+             "action": {"name": "Intentar", "url": "http://aula/mod/quiz/view.php?id=78"},
+             "overdue": True, "modulename": "quiz"},
+        ]
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
 
@@ -116,6 +128,9 @@ class FakeMoodle:
                         return self._send(200, json.dumps(
                             {"error": "Clave de sesión no válida"}).encode(), "application/json")
                     req = json.loads(raw)[0]
+                    if req["methodname"] == "core_calendar_get_action_events_by_timesort":
+                        return self._send(200, json.dumps([{"error": False, "data": {"events": fake.events}}]).encode(),
+                                          "application/json")
                     assert req["methodname"] == "core_course_get_enrolled_courses_by_timeline_classification"
                     courses = [{"id": 1, "fullname": "Matemáticas", "shortname": "MT1001"},
                                {"id": 2, "fullname": "Física", "shortname": "FS1002"}]
@@ -149,6 +164,12 @@ class FakeMoodle:
                             "Tema%201.pdf")
                     if cmid == fake.forbidden_cmid:
                         return self._redirect(f"{fake.base_url}/pluginfile.php/51/mod_resource/content/1/privado.pdf")
+                if p == "/mod/forum/view.php" and q.get("id") == ["15"]:
+                    rows = "".join(
+                        f'<tr class="discussion"><th><a href="{fake.base_url}/mod/forum/discuss.php?d={d}">{t}</a></th>'
+                        f'<td><time datetime="2026-09-{20 + d}T10:00:00">{20 + d} sept</time></td></tr>'
+                        for d, t in fake.discussions)
+                    return self._send(200, f"<html><body><div id='region-main'><table>{rows}</table></div></body></html>".encode())
                 if p == "/mod/folder/view.php":
                     return self._send(200, fake.folder_html().encode())
                 if p == "/mod/url/view.php":
