@@ -231,7 +231,11 @@ const pages = {
       if (r.error) { $("#u-status").textContent = " ⚠ " + r.error; return; }
       $("#files").value = "";
       if (r.job) { $("#u-status").textContent = " La IA está clasificando tus archivos…"; watchJob(() => route()); }
-      else { $("#u-status").textContent = ` ✓ ${r.saved.length} archivo(s) añadidos.`; loadItems(); }
+      else {
+        $("#u-status").textContent = ` ✓ ${r.saved.length} archivo(s) añadidos.`;
+        loadItems();
+        if (r.indexing) watchJob();  // se indexan para poder buscarlos
+      }
     };
 
     // bandeja
@@ -288,11 +292,16 @@ const pages = {
   async buscar() {
     view().innerHTML = `
       <h2>🔎 Buscar en mis apuntes</h2>
-      <p class="lead">Busca por nombre, o pregunta sobre tus materiales.</p>
-      <div class="card"><h3>Buscar materiales</h3>
-        <div class="row"><input class="grow" id="q" placeholder="Ej.: derivadas, cinemática, examen 2024…">
+      <p class="lead">Busca dentro del contenido de tus documentos, o pregunta sobre tus materiales.</p>
+      <div class="card"><h3>Buscar en el contenido</h3>
+        <div class="row"><input class="grow" id="q" placeholder="Ej.: regla de la cadena, módulo de elasticidad, velocidad instantánea…">
           <button class="btn" id="go">Buscar</button></div>
-        <p class="muted">Por ahora busca en nombres, temas y descripciones. La búsqueda dentro del contenido de los documentos llega en la Fase 4.</p>
+        <div class="row" style="margin-top:8px">
+          <select id="s-course">${opt("", "Todas las asignaturas")}${status.courses.map((c) => opt(c)).join("")}</select>
+          <select id="s-tipo">${opt("", "Todos los tipos")}${status.tipos.map((t) => opt(t)).join("")}</select>
+        </div>
+        <p class="muted" id="idx-status"></p>
+        <ul class="list" id="results"></ul>
       </div>
       <div class="card"><h3>💬 Preguntar a mis apuntes</h3>
         ${status.ai.ready ? `
@@ -302,9 +311,44 @@ const pages = {
           <div class="row"><textarea class="grow" id="question" rows="2" placeholder="¿Qué dio el profesor sobre derivadas?"></textarea>
             <button class="btn" id="send">Enviar</button></div>` : aiNeeded()}
       </div>`;
-    const go = () => { location.hash = "#biblioteca?q=" + encodeURIComponent($("#q").value.trim()); };
+    const hl = (s) => esc(s).replace(/\u0002/g, "<mark>").replace(/\u0003/g, "</mark>");
+    const go = async () => {
+      const q = $("#q").value.trim(); if (!q) return;
+      const qs = new URLSearchParams({ q });
+      if ($("#s-course").value) qs.set("course", $("#s-course").value);
+      if ($("#s-tipo").value) qs.set("tipo", $("#s-tipo").value);
+      $("#results").innerHTML = '<li class="muted">Buscando…</li>';
+      const { results = [] } = await api("/api/search?" + qs);
+      $("#results").innerHTML = results.map((r) => {
+        const page = /^pág\. (\d+)/.exec(r.loc);
+        const url = fileUrl(r.path) + (page ? `#page=${page[1]}` : "");
+        return `<li><div class="row"><span class="item-title grow"><a href="${url}" target="_blank" rel="noopener">${esc(r.titulo)}</a>
+            ${r.loc ? `<span class="muted">· ${esc(r.loc)}</span>` : ""}</span>
+            ${r.tipo ? `<span class="badge accent">${esc(r.tipo)}</span>` : ""}
+            ${r.match.map((m) => `<span class="badge">${m === "palabras" ? "por palabras" : "por significado"}</span>`).join("")}</div>
+          <div class="muted">${esc(r.course)}${r.tema ? " · " + esc(r.tema) : ""}</div>
+          <div>${hl(r.snippet)}</div></li>`;
+      }).join("") || `<li class="muted">No aparece en tus documentos indexados. Prueba con otras palabras o
+        <a href="#biblioteca?q=${encodeURIComponent(q)}">busca por nombre en la biblioteca</a>.</li>`;
+    };
     $("#go").onclick = go;
     $("#q").onkeydown = (e) => { if (e.key === "Enter") go(); };
+    $("#s-course").onchange = go; $("#s-tipo").onchange = go;
+    const loadStatus = async () => {
+      const st = await api("/api/search/status");
+      if (st.error) return;
+      const sem = st.semantic.available ? "búsqueda por significado activa"
+        : `búsqueda por significado no disponible${st.semantic.error ? " (" + esc(st.semantic.error) + ")" : ""}`;
+      $("#idx-status").innerHTML = `${st.indexed} de ${st.documents} documentos indexados · ${sem}
+        ${st.no_text ? `· ${st.no_text} fotos o escaneados sin leer` : ""}<br>
+        <button class="btn small secondary" id="reindex">Actualizar índice</button>
+        ${st.ocr_candidates && status.local && status.ai.ready ? `<button class="btn small secondary" id="ocr">👁 Leer ${st.ocr_candidates} fotos con IA</button>` : ""}`;
+      $("#reindex").onclick = () => startJob("/api/search/index", { ocr: false }, loadStatus);
+      const ocrBtn = $("#ocr");
+      if (ocrBtn) ocrBtn.onclick = () => confirm(`Claude leerá ${st.ocr_candidates} fotos o escaneados (una sola vez; coste de céntimos por foto). ¿Seguir?`)
+        && startJob("/api/search/index", { ocr: true }, loadStatus);
+    };
+    loadStatus();
     if (!status.ai.ready) return;
     let conversation = null;
     const add = (kind, html) => { const d = document.createElement("div"); d.className = "msg " + kind; d.innerHTML = html; $("#messages").appendChild(d); d.scrollIntoView({ block: "end" }); return d; };
@@ -321,7 +365,7 @@ const pages = {
       thinking.remove(); $("#send").disabled = false;
       if (r.error) { add("info", "⚠ " + esc(r.error)); return; }
       conversation = r.conversation;
-      for (const p of r.reads) add("info", "📖 Ha leído " + esc(p));
+      for (const p of r.reads) add("info", p.startsWith("🔎 ") ? "🔎 Ha buscado «" + esc(p.slice(3)) + "»" : "📖 Ha leído " + esc(p));
       add("bot", md(r.answer));
       $("#cost").textContent = `Coste: ${r.cost.toFixed(2).replace(".", ",")} US$`;
     };
@@ -360,6 +404,7 @@ const pages = {
         <p class="muted">La clave se guarda en el Administrador de credenciales de Windows, nunca en un archivo.</p>
         <div class="row"><label class="field">Modelo <select id="model">${Object.entries(ai.models).map(([k, v]) => opt(k, v, k === ai.model)).join("")}</select></label></div>
         <label class="check"><input type="checkbox" id="enabled" ${ai.enabled ? "checked" : ""}> Resumir automáticamente los archivos nuevos al sincronizar</label>
+        <label class="check"><input type="checkbox" id="ocr-auto" ${status.ocr_enabled ? "checked" : ""}> Leer con IA las fotos y los PDF escaneados nuevos para poder buscar en ellos</label>
         <p>Estado: ${ai.ready ? '<b class="ok">IA activa</b>' : '<b class="warn">IA desactivada</b> (falta aceptar el aviso o la clave)'}</p>
       </div>
       <div class="card"><h3>✨ Claude Pro (gratis)</h3>
@@ -388,6 +433,7 @@ const pages = {
     $("#model").onchange = (e) => save({ ai_model: e.target.value });
     $("#enabled").onchange = (e) => save({ ai_enabled: e.target.checked });
     $("#pro").onchange = (e) => save({ pro_index: e.target.checked });
+    $("#ocr-auto").onchange = (e) => save({ ocr_enabled: e.target.checked });
     $("#mobile").onchange = async (e) => {
       const r = await api("/api/mobile", { method: "POST", json: { enabled: e.target.checked } });
       if (r.error) toast(r.error);

@@ -16,8 +16,8 @@ Funciona en el navegador del PC y, opcionalmente, en el móvil dentro de tu wifi
 | 1 | Investigación del Aula Virtual / Moodle ([informe](docs/FASE1-investigacion.md)) | ✅ |
 | 2 | Sincronización del Aula Virtual | ✅ (pendiente de probar con tu cuenta) |
 | 3 | Biblioteca de documentos con etiquetas | ✅ |
-| 4 | Búsqueda dentro del contenido de los documentos | ⏳ siguiente |
-| 5 | Resolver ejercicio con fotos | ⏳ |
+| 4 | Búsqueda dentro del contenido de los documentos | ✅ |
+| 5 | Resolver ejercicio con fotos | ⏳ siguiente |
 | 6 | Modo «Como mis apuntes / profesor» | ⏳ |
 | 7 | Tareas, entregas y calendario | ⏳ |
 
@@ -48,7 +48,7 @@ servidor: déjala abierta) y la aplicación en tu navegador, en
 | 📥 **Sincronizar Aula Virtual** | 1) Se abre Edge y **tú** inicias sesión. 2) Marcas las asignaturas. 3) Sincronizas. Puedes solo analizar primero. |
 | 📖 **Biblioteca de apuntes** | Todo tu material con filtros (asignatura, tema, tipo, origen, texto). Subes fotos, capturas y PDF, y editas las etiquetas. |
 | 📷 **Resolver ejercicio** | Próximamente (Fase 5). |
-| 🔎 **Buscar en mis apuntes** | Busca por nombre y descripción. Con la IA activada, puedes **preguntar** a tus materiales. |
+| 🔎 **Buscar en mis apuntes** | Busca **dentro del contenido** de tus documentos (con página y fragmento). Con la IA activada, puedes **preguntar** a tus materiales. |
 | 📅 **Tareas y entregas** | Próximamente (Fase 7). |
 | ⚙️ **Configuración** | Carpeta (o Google Drive), IA, modo Claude Pro y acceso desde el móvil. |
 
@@ -92,6 +92,34 @@ corregidos · Exámenes · Prácticas · Pizarra · Otros.
 - Los archivos del Aula Virtual no se mueven nunca: solo cambian sus etiquetas.
 - Las etiquetas se guardan en el registro local
   (`%LOCALAPPDATA%\UJISync\registros\`) y se conservan entre sincronizaciones.
+
+## Búsqueda en tus documentos
+
+En 🔎 **Buscar** escribes lo que buscas y aparecen los documentos con el
+**fragmento** donde sale y la **página** o diapositiva. Al pulsar, el PDF se abre
+en esa página. Hay filtros por asignatura y tipo.
+
+- **Por palabras**: ignora tildes y mayúsculas («hormigon» encuentra «hormigón»).
+- **Por significado**: «velocidad instantánea» encuentra «derivada» aunque no
+  compartan palabras. Usa un modelo multilingüe que se ejecuta **en tu PC**,
+  gratis y sin enviar nada fuera. La primera vez se descarga (unos 220 MB), así
+  que la primera indexación tarda algo más.
+- **Qué se indexa**: el texto de PDF, Word, PowerPoint (con notas del orador) y
+  archivos de texto, tanto del Aula Virtual como tuyos. Se actualiza solo al
+  sincronizar, al subir apuntes y al organizar la bandeja. Solo se procesa lo
+  nuevo o cambiado. También puedes pulsar «Actualizar índice».
+- **Fotos y PDF escaneados** no tienen texto:
+  - Sin IA, se encuentran por su título y etiquetas.
+  - Con la IA activada, «👁 Leer fotos con IA» hace que Claude los transcriba
+    una sola vez (letra a mano y fórmulas incluidas, céntimos por foto) y su
+    texto pasa al buscador.
+  - En Configuración puedes hacer que las fotos nuevas se lean automáticamente.
+- El **asistente** usa este buscador: antes de responder busca en tus documentos
+  y cita el documento y la página.
+
+Si la búsqueda por significado no está disponible (por ejemplo, sin internet la
+primera vez), la búsqueda por palabras sigue funcionando y la pantalla te dice
+por qué.
 
 ## Google Drive
 
@@ -173,6 +201,7 @@ uji_sync/
   assistant.py   preguntas sobre tus materiales
   inbox.py       bandeja: clasificar con IA
   claude_pro.py  índice para la app de Claude (sin API)
+  search.py      búsqueda: extracción de texto, índice por palabras (FTS5), significado, OCR
   config.py, apikey.py, fsutils.py, cli.py
 tests/           pruebas con un Moodle simulado y un Claude simulado (sin coste)
 ```

@@ -12,6 +12,7 @@ from uji_sync.inbox import InboxResult
 from uji_sync.webapp import AppState, ServerThread, create_app
 
 from .fake_moodle import FakeMoodle
+from .test_search import FakeEmbedder
 
 REMOTE = {"REMOTE_ADDR": "192.168.1.50"}
 H = {"X-UJI": "1"}
@@ -43,10 +44,21 @@ def state(tmp_path, monkeypatch):
     root = tmp_path / "UJI Study"
     (root / "Cálculo I/03 - Tema 3").mkdir(parents=True)
     (root / "Cálculo I/03 - Tema 3/Tema 3.pdf").write_bytes(b"%PDF t3")
+    (root / "Cálculo I/03 - Tema 3/Resumen.txt").write_text(
+        "La regla de la cadena: la derivada de f(g(x)) es f'(g(x))·g'(x).", encoding="utf-8")
     (root / "Cálculo I/03 - Tema 3/Boletín 3.pdf").write_bytes(b"%PDF b3")
     (tmp_path / "secreto.txt").write_text("no")
     s = Settings(dest_dir=str(root), ai_consent=True, mobile_pin="123456")
-    st = AppState(s, assistant_factory=FakeAssistant, organizer_factory=FakeOrganizer)
+    ocr_calls = []
+
+    def ocr_factory(model):
+        def ocr(path):
+            ocr_calls.append(path.name)
+            return ("Apuntes de la pizarra sobre el hormigón armado", 0.01)
+        return ocr
+    st = AppState(s, assistant_factory=FakeAssistant, organizer_factory=FakeOrganizer,
+                  embedder=FakeEmbedder(), ocr_factory=ocr_factory)
+    st.ocr_calls = ocr_calls
     yield st
     st.jobs.shutdown()
 
@@ -83,12 +95,13 @@ def test_library_api(client):
     st = client.get("/api/status").get_json()
     assert st["courses"] == ["Cálculo I"] and "Pizarra" in st["tipos"] and st["ai"]["ready"]
     items = client.get("/api/library").get_json()["items"]
-    assert {i["titulo"]: i["tipo"] for i in items} == {"Boletín 3": "Problemas", "Tema 3": "Teoría"}
+    assert {i["titulo"]: i["tipo"] for i in items} == {"Boletín 3": "Problemas", "Tema 3": "Teoría",
+                                                       "Resumen": "Teoría"}
 
     assert client.post("/api/courses/profesor", json={"course": "Cálculo I", "profesor": "Dra. García"},
                        headers=H).status_code == 200
     courses = client.get("/api/courses").get_json()["courses"]
-    assert courses[0]["profesor"] == "Dra. García" and courses[0]["by_tipo"] == {"Problemas": 1, "Teoría": 1}
+    assert courses[0]["profesor"] == "Dra. García" and courses[0]["by_tipo"] == {"Problemas": 1, "Teoría": 2}
 
     data = {"files": [(io.BytesIO(b"foto"), "pizarra.jpg"), (io.BytesIO(b"pdf"), "ej.pdf")],
             "course": "Cálculo I", "tema": "03 - Tema 3", "tipo": "Pizarra", "profesor": ""}
@@ -104,7 +117,7 @@ def test_library_api(client):
     assert client.post("/api/library/update", json={"path": "no/existe", "tipo": "Otros"}, headers=H).status_code == 404
 
     home = client.get("/api/home").get_json()
-    assert home["counts"] == {"Cálculo I": 4} and len(home["recent"]) == 4
+    assert home["counts"] == {"Cálculo I": 5} and len(home["recent"]) == 5
 
 
 def test_chat_and_organize(client, state):
@@ -195,7 +208,7 @@ def test_interface_in_browser(state, viewport, tmp_path):
 
             go("biblioteca")
             page.wait_for_selector("#items li .item-title")
-            assert page.locator("#count").inner_text() == "2 de 2 materiales"
+            assert page.locator("#count").inner_text() == "3 de 3 materiales"
             page.click("#upload summary")  # el panel de subida empieza plegado
             page.set_input_files("#files", files=[{"name": "pizarra.jpg", "mimeType": "image/jpeg", "buffer": b"x"}])
             page.select_option("#u-course", "Cálculo I")
@@ -203,15 +216,22 @@ def test_interface_in_browser(state, viewport, tmp_path):
             page.select_option("#u-tipo", "Pizarra")
             page.click("#u-send")
             page.wait_for_selector("#u-status:has-text('1 archivo')")
-            page.wait_for_selector("#count:has-text('3 de 3')")
+            page.wait_for_selector("#count:has-text('4 de 4')")
             page.select_option("#f-tipo", "Pizarra")
-            page.wait_for_selector("#count:has-text('1 de 3')")
+            page.wait_for_selector("#count:has-text('1 de 4')")
             page.click(".edit")
             page.fill("#e-titulo", "Regla de la cadena")
             page.click("#e-save")
             page.wait_for_selector("text=Regla de la cadena")
 
             go("buscar")
+            page.click("#reindex")
+            page.wait_for_selector("#job:has-text('Índice de búsqueda actualizado')")
+            page.fill("#q", "REGLA de la cadena")
+            page.click("#go")
+            hit = page.wait_for_selector("#results li .item-title")
+            assert "Resumen" in hit.inner_text()
+            assert page.locator("#results mark").first.inner_text().lower() == "regla"
             page.fill("#question", "¿Qué es una derivada?")
             page.click("#send")
             bot = page.wait_for_selector(".msg.bot")
@@ -238,3 +258,38 @@ def test_interface_in_browser(state, viewport, tmp_path):
             browser.close()
     finally:
         server.stop()
+
+
+def test_search_api(client, state):
+    assert client.get("/api/search?q=cadena").get_json()["results"] == []  # aún sin indexar
+    st = client.get("/api/search/status").get_json()
+    assert (st["documents"], st["indexed"]) == (3, 0)
+    # Subir una foto la indexa en segundo plano (sin IA: queda «sin texto»)
+    data = {"files": [(io.BytesIO(b"\xff\xd8foto"), "pizarra.jpg")], "course": "Cálculo I",
+            "tema": "03 - Tema 3", "tipo": "Pizarra"}
+    r = client.post("/api/library/upload", data=data, headers=H, content_type="multipart/form-data").get_json()
+    assert r["indexing"] is True
+    for _ in range(100):
+        job = client.get("/api/job").get_json()["job"]
+        if not job["running"]:
+            break
+        time.sleep(0.05)
+    st = client.get("/api/search/status").get_json()
+    assert st["indexed"] == 4 and st["ocr_candidates"] == 1  # la foto (los PDF de prueba están dañados)
+    hits = client.get("/api/search?q=regla de la cadena").get_json()["results"]
+    assert hits[0]["titulo"] == "Resumen" and hits[0]["course"] == "Cálculo I" and "text" not in hits[0]
+    assert client.get("/api/search?q=cadena&tipo=Problemas").get_json()["results"] == []  # filtro por tipo
+    # «Por significado»: la derivada sin la palabra exacta
+    assert client.get("/api/search?q=velocidad instantánea").get_json()["results"][0]["match"] == ["significado"]
+
+    # Leer fotos con IA: solo desde el PC y con la IA activada
+    assert client.post("/api/search/index", json={"ocr": True}, headers=H, environ_base=REMOTE).status_code == 401
+    client.post("/api/search/index", json={"ocr": True}, headers=H)
+    for _ in range(100):
+        job = client.get("/api/job").get_json()["job"]
+        if not job["running"]:
+            break
+        time.sleep(0.05)
+    assert state.ocr_calls == ["pizarra.jpg"] and "1 fotos o escaneados leídos" in job["result"]
+    hits = client.get("/api/search?q=hormigón").get_json()["results"]
+    assert {h["titulo"] for h in hits} >= {"pizarra"}

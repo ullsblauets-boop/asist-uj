@@ -27,7 +27,7 @@ from werkzeug.serving import make_server
 
 from . import __version__
 from .ai import (
-    DEFAULT_MODEL, MODELS, AIError, AIFatalError, AIProcessor, needs_api, pending,
+    DEFAULT_MODEL, MODELS, AIError, AIFatalError, AIProcessor, make_client, needs_api, pending,
 )
 from .apikey import delete_api_key, has_credentials, set_api_key
 from .assistant import Assistant
@@ -40,6 +40,7 @@ from .library import (
     sync_library, update_item,
 )
 from .registry import Registry
+from .search import LocalEmbedder, SearchIndex, claude_ocr
 from .sync import Syncer, format_summary
 
 PORT = 8765
@@ -71,8 +72,10 @@ def new_pin() -> str:
 
 class AppState:
     def __init__(self, settings: Settings, browser_factory=None, assistant_factory=None,
-                 organizer_factory=None, processor_factory=None):
+                 organizer_factory=None, processor_factory=None, embedder=None, ocr_factory=None):
         self.settings = settings
+        self.embedder = embedder if embedder is not None else LocalEmbedder()
+        self.ocr_factory = ocr_factory or (lambda model: claude_ocr(make_client(), model))
         self.jobs = JobManager()
         self.sessions: set[str] = set()
         self.failed = 0
@@ -83,7 +86,8 @@ class AppState:
         self.browser_factory = browser_factory or (
             lambda: MoodleBrowserLazy())
         self.assistant_factory = assistant_factory or (
-            lambda root, course, model: Assistant(root, course, model=model))
+            lambda root, course, model: Assistant(root, course, model=model,
+                                                  searcher=self.search_for_assistant))
         self.organizer_factory = organizer_factory or (
             lambda root, reg, model, log: InboxOrganizer(root, reg, model=model, log=log))
         self.processor_factory = processor_factory or (
@@ -98,6 +102,33 @@ class AppState:
 
     def registry(self) -> Registry:
         return Registry(registry_path(self.root))
+
+    # ---------------------------------------------------------- búsqueda (Fase 4)
+    def search_index(self) -> SearchIndex:
+        return SearchIndex(self.root, embedder=self.embedder)
+
+    def index_update(self, log, ocr: bool = False, auto: bool = False):
+        """Actualiza el índice. Con ocr=True (y la IA activada) lee fotos y escaneados.
+        En modo automático (tras sincronizar u organizar) no lee más de AI_CONFIRM_OVER."""
+        idx = self.search_index()
+        try:
+            ocr_fn = None
+            if ocr and self.ai_ready():
+                if auto and len(idx.ocr_candidates()) > AI_CONFIRM_OVER:
+                    log("Hay muchas fotos sin leer: usa «Leer fotos con IA» en Buscar.")
+                else:
+                    ocr_fn = self.ocr_factory(self.settings.ai_model)
+            return idx.update(log=log, ocr=ocr_fn, should_stop=self.jobs.stop.is_set)
+        finally:
+            idx.close()
+
+    def search_for_assistant(self, query: str, courses: list[str]) -> list[dict]:
+        idx = self.search_index()
+        try:
+            hits = idx.search(query, limit=12)
+        finally:
+            idx.close()
+        return [h for h in hits if h["path"].split("/", 1)[0] in courses][:8]
 
     def check_pin(self, pin: str) -> str | None:
         with self.lock:
@@ -201,7 +232,7 @@ def create_app(state: AppState) -> Flask:
             "courses": list_courses(state.root), "tipos": TIPOS, "sources": SOURCES,
             "ai": {"ready": state.ai_ready(), "consent": s.ai_consent, "has_key": has_credentials(),
                    "enabled": s.ai_enabled, "model": s.ai_model, "models": MODELS},
-            "pro_index": s.pro_index, "job": state.jobs.current(),
+            "pro_index": s.pro_index, "ocr_enabled": s.ocr_enabled, "job": state.jobs.current(),
             "logged_in": bool(state.jobs.state.get("moodle_courses")),
             "mobile": {"enabled": state.mobile_server is not None},
             "inbox": len(inbox_files(state.root)),
@@ -321,7 +352,69 @@ def create_app(state: AppState) -> Flask:
             return err(str(e))
         finally:
             reg.close()
-        return jsonify({"saved": saved})
+        return jsonify({"saved": saved, "indexing": _start_index(ocr=state.settings.ocr_enabled)})
+
+    def _start_index(ocr: bool) -> bool:
+        """Indexa en segundo plano si no hay otra tarea en marcha."""
+        def run(job):
+            return state.index_update(job.log.append, ocr=ocr, auto=True).text()
+        try:
+            state.jobs.submit("index", "Actualizar índice de búsqueda", run)
+            return True
+        except Busy:
+            return False
+
+    # ------------------------------------------------------------ búsqueda
+    @app.get("/api/search")
+    def search():
+        a = request.args
+        q = a.get("q", "").strip()
+        if not q:
+            return jsonify({"results": []})
+        reg = state.registry()
+        try:
+            items = sync_library(state.root, reg)
+        finally:
+            reg.close()
+        filtered = any(a.get(k) for k in ("course", "tema", "tipo", "source"))
+        paths = ({i["path"] for i in filter_items(items, a.get("course"), a.get("tema"), a.get("tipo"),
+                                                   None, a.get("source"))} if filtered else None)
+        idx = state.search_index()
+        try:
+            hits = idx.search(q, paths=paths, limit=30)
+        finally:
+            idx.close()
+        for h in hits:
+            it = items.get(h["path"], {})
+            h.update(titulo=it.get("titulo", PurePosixPath(h["path"]).stem), tipo=it.get("tipo", ""),
+                     course=it.get("course", ""), tema=it.get("tema", ""), source=it.get("source", ""))
+            h.pop("text", None)
+        return jsonify({"results": hits})
+
+    @app.get("/api/search/status")
+    def search_status():
+        idx = state.search_index()
+        try:
+            st = idx.status()
+            st["ocr_candidates"] = len(idx.ocr_candidates())
+        finally:
+            idx.close()
+        return jsonify(st)
+
+    @app.post("/api/search/index")
+    def search_reindex():
+        ocr = bool((request.get_json(silent=True) or {}).get("ocr"))
+        if ocr:
+            local_only()  # leer fotos con IA tiene coste: solo desde el PC
+            require_ai()
+
+        def run(job):
+            return state.index_update(job.log.append, ocr=ocr).text()
+        try:
+            title = "Leer fotos con IA e indexar" if ocr else "Actualizar índice de búsqueda"
+            return jsonify({"job": state.jobs.submit("index", title, run).as_dict()})
+        except Busy as e:
+            return err(str(e), 409)
 
     @app.get("/api/library/file")
     def library_file():
@@ -349,9 +442,12 @@ def create_app(state: AppState) -> Flask:
             reg = state.registry()
             try:
                 org = state.organizer_factory(state.root, reg, model, job.log.append)
-                return org.organize().text()
+                text = org.organize().text()
+                sync_library(state.root, reg)
             finally:
                 reg.close()
+            state.index_update(job.log.append, ocr=state.settings.ocr_enabled, auto=True)
+            return text
         try:
             return jsonify({"job": state.jobs.submit("organize", "Organizar apuntes", run).as_dict()})
         except Busy as e:
@@ -469,7 +565,9 @@ def create_app(state: AppState) -> Flask:
             if pro:
                 write_pro_files(root, results)
                 job.log.append(f"📋 Índice para Claude actualizado en {PRO_DIR}/")
-            return text
+            job.log.append("🔎 Actualizando el índice de búsqueda…")
+            stats = state.index_update(job.log.append, ocr=state.settings.ocr_enabled, auto=True)
+            return text + "\n\n" + stats.text()
         try:
             return jsonify({"job": state.jobs.submit("sync", "Sincronizar", run).as_dict()})
         except Busy as e:
@@ -513,7 +611,7 @@ def create_app(state: AppState) -> Flask:
         s = state.settings
         if "dest_dir" in data and str(data["dest_dir"]).strip():
             s.dest_dir = str(data["dest_dir"]).strip()
-        for key in ("ai_enabled", "pro_index", "ai_consent"):
+        for key in ("ai_enabled", "pro_index", "ai_consent", "ocr_enabled"):
             if key in data:
                 setattr(s, key, bool(data[key]))
         if data.get("ai_model") in MODELS:

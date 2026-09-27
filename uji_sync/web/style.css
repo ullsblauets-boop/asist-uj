@@ -90,3 +90,4 @@ code { background: var(--bg); padding: 1px 4px; border-radius: 4px; }
 /* ---- login ---- */
 #login { max-width: 360px; margin: 10vh auto 0; text-align: center; }
 #pin { text-align: center; font-size: 28px; letter-spacing: 8px; width: 100%; margin: 14px 0; }
+mark { background: var(--accent-soft); color: inherit; padding: 0 2px; border-radius: 3px; font-weight: 600; }

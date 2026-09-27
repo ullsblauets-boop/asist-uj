@@ -6,3 +6,6 @@ python-docx>=1.1
 python-pptx>=1.0
 Pillow>=10          # fotos de apuntes
 keyring>=25
+# Búsqueda en el contenido (Fase 4)
+pypdf>=5
+fastembed>=0.7        # búsqueda por significado, en tu PC
