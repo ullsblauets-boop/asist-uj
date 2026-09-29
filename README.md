@@ -29,12 +29,12 @@ IA, las tareas y los avisos están pendientes de probar con tus datos reales.
 
 1. Instala **Python 3.10 o superior** desde <https://www.python.org/downloads/>
    (marca *"Add python.exe to PATH"*).
-2. Abre **PowerShell** en la carpeta del proyecto y ejecuta:
+2. Haz doble clic en **`Instalar.bat`** y espera a que diga «Listo» (unos
+   minutos). Para actualizar a una versión nueva, igual: descomprímela y vuelve a
+   hacer doble clic en `Instalar.bat`.
 
-   ```powershell
-   py -m venv .venv
-   .venv\Scripts\pip install -r requirements.txt
-   ```
+   (Equivale a ejecutar en PowerShell, dentro de la carpeta:
+   `py -m venv .venv` y `.venv\Scripts\python -m pip install -r requirements.txt`.)
 
 3. Usa **Microsoft Edge** (viene con Windows) para el inicio de sesión en el
    Aula Virtual. Si no lo tuvieras: `.venv\Scripts\python -m playwright install chromium`.
